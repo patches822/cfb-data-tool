@@ -22,12 +22,16 @@ class RapidOcrEngine(OcrEngine):
         from rapidocr_onnxruntime import RapidOCR
 
         logger.info("Initializing RapidOCR (ONNX)...")
-        self._engine = RapidOCR()
+        # det_limit_type='max' caps the detection input at the longer side and
+        # never upscales. The default 'min' upscales our small ROI crops ~6x,
+        # which dominated scan time (~8s/scan -> ~2s/scan) for no accuracy gain.
+        self._engine = RapidOCR(det_limit_side_len=960, det_limit_type="max")
 
     def readtext(self, img, detail: int = 1):
         # RapidOCR accepts a BGR ndarray and returns (result, elapse).
         # result is a list of [box, text, score] or None when nothing is found.
-        result, _ = self._engine(img)
+        # cls (180-degree angle classification) is skipped: card text is upright.
+        result, _ = self._engine(img, use_cls=False)
         if not result:
             return []
 

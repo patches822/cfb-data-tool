@@ -72,6 +72,12 @@ def _read_with_pos(ocr, img, roi):
     return [(bbox[0][1], text, conf) for bbox, text, conf in results]
 
 
+def _read_with_xy(ocr, img, roi):
+    """OCR a cropped ROI; return list of (x, y, text, conf) from the top-left corner."""
+    results = ocr.readtext(_crop(img, roi), detail=1)
+    return [(bbox[0][0], bbox[0][1], text, conf) for bbox, text, conf in results]
+
+
 def _mean_conf(confs) -> float:
     confs = [c for c in confs if c is not None]
     return round(sum(confs) / len(confs), 3) if confs else 0.0
@@ -98,25 +104,33 @@ def extract_position(ocr, img, rois):
 
 
 def extract_archetype(ocr, img, rois):
-    items = _read_with_pos(ocr, img, rois["archetype"])
-    words = sorted(
-        [(y, text) for y, text, _ in items if text.upper() != "ARCHETYPE"],
-        key=lambda x: x[0],
-    )
-    if not words:
+    raw = _read_with_xy(ocr, img, rois["archetype"])
+    items = [(x, y, text) for x, y, text, _ in raw if text.upper() != "ARCHETYPE"]
+    if not items:
         return "Error", 0.0
-    result = " ".join(text for _, text in words)
-    # OCR reads "/" as "W"/"I": "East/West" -> "EastWWest"/"EastIWest"
+    # Order top-to-bottom, then left-to-right within a row. Y-only sorting left
+    # same-line words at the mercy of OCR order ("Raw Strength" -> "Strength Raw").
+    items.sort(key=lambda it: (round(it[1] / 25), it[0]))
+    result = " ".join(text for _, _, text in items)
+
+    # OCR reads "/" as "W"/"I": "East/West" -> "EastWWest"/"EastIWest". Fix this
+    # before the PascalCase split below so the doubled W isn't broken apart.
     result = re.sub(r"East(?:/|[WI]+)West", "East/West", result)
-    # OCR occasionally inserts a stray "." between words ("Edge . Setter")
+    # RapidOCR often merges the two words into one box ("RawStrength",
+    # "PassProtector"); re-insert the space at lower->upper case boundaries.
+    result = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", result)
+    # OCR occasionally inserts a stray "." between words ("Edge . Setter").
     result = re.sub(r"\s+\.\s+", " ", result)
-    return result.strip(), _mean_conf([c for _, _, c in items])
+    result = re.sub(r"\s{2,}", " ", result).strip()
+    return result, _mean_conf([c for *_, c in raw])
 
 
 def extract_recruit_class(ocr, img, rois):
     pairs = _read(ocr, img, rois["recruit_class"])
     words = [w for w in " ".join(t for t, _ in pairs).split() if w.upper() != "CLASS"]
-    result = " ".join(words).strip()
+    # RapidOCR sometimes appends a stray period ("High School." -> "High School").
+    # No real class value contains a period, so strip them.
+    result = " ".join(words).replace(".", "").strip()
     return (result or "Error"), _mean_conf([c for _, c in pairs])
 
 
@@ -126,12 +140,21 @@ def extract_hometown(ocr, img, rois):
     s = " ".join(texts).replace(";", ",").strip()
     if not s:
         return "Error", 0.0
+    # The card shows a small state/flag icon between city and state that RapidOCR
+    # misreads as a stray glyph ("Sharpsburg, @ GA"). Real hometowns only contain
+    # letters, spaces, commas, periods, hyphens and apostrophes — drop the rest.
+    s = re.sub(r"[^A-Za-zÀ-ÿ ,.'\-]", "", s)
     # Ensure "City, State" form even if OCR dropped the comma.
     if "," not in s:
         head, _, tail = s.rpartition(" ")
         if head:
             s = f"{head}, {tail}"
-    s = re.sub(r"\s*,\s*", ", ", s).strip()
+    s = re.sub(r"\s*,\s*", ", ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    # Uppercase the trailing 2-letter state ("Monument, Co" -> "Monument, CO").
+    m = re.match(r"^(.*),\s*([A-Za-z]{2})$", s)
+    if m:
+        s = f"{m.group(1)}, {m.group(2).upper()}"
     return s, _mean_conf([c for _, c in pairs])
 
 
@@ -163,51 +186,85 @@ def extract_height_weight(ocr, img, rois):
 
     height = _parse_height(s)
 
-    # Weight is a 3-digit run not glued to other digits. Avoids \b so it still
-    # matches "204Ibs" (no space), where \b fails between the digit and letter.
-    wm = re.search(r"(?<!\d)(\d{3})(?!\d)", s)
+    # Weight = the 3 digits before the "lbs" unit (OCR reads it "Ibs"/"lbs").
+    # Anchoring to the unit isolates the weight even when height and weight glue
+    # together with no separator ("5'10190Ibs" -> 190). Fall back to a standalone
+    # 3-digit run if the unit wasn't recognized.
+    wm = re.search(r"(\d{3})\s*[il]bs", s, re.IGNORECASE)
+    if not wm:
+        wm = re.search(r"(?<!\d)(\d{3})(?!\d)", s)
     weight = wm.group(1) if wm else ""
 
     return height, weight, conf
 
 
 def extract_attributes(ocr, img, rois):
-    items = _read_with_pos(ocr, img, rois["attributes"])
+    """Extract the recruit-card attributes preserving the in-game layout.
 
-    label_items = []  # (y, clean_label)
-    value_items = []  # (y, value)
+    The card shows attributes in two columns; each cell is a label above its
+    value. We split boxes into left/right columns by X, then pair label->value
+    within each column by Y. Pairing per-column (not globally) avoids mismatches
+    when the two columns' rows aren't perfectly aligned — e.g. Speed (right) and
+    Medium Accuracy (left) sitting at nearly the same height. Results are emitted
+    column-major (whole left column top-to-bottom, then right) so the order
+    mirrors the screenshot.
+    """
+    roi = rois["attributes"]
+    mid_x = roi[3] / 2  # ROI width / 2 divides the two columns
+    items = _read_with_xy(ocr, img, roi)
     confs = []
 
-    for y, raw, conf in items:
+    # side -> (labels, values), each a list of (y, text)
+    cols = {"L": ([], []), "R": ([], [])}
+
+    for x, y, raw, conf in items:
         confs.append(conf)
+        labels, values = cols["L"] if x < mid_x else cols["R"]
         s = raw.strip()
 
         # Pure 2-digit value (a rating).
         if s.isdigit():
             if len(s) == 2:
-                value_items.append((y, s))
+                values.append((y, s))
             continue
 
-        # Combined "LABEL 95" in a single box (RapidOCR sometimes merges a row).
+        # Combined "LABEL 95" in a single box (RapidOCR occasionally merges a cell).
         m = re.match(r"^(.*?)[\s:]+(\d{2})$", s)
-        if m:
-            key = m.group(1).replace(" ", "").upper()
-            if key in _HEADER_MAP:
-                label_items.append((y, _HEADER_MAP[key]))
-                value_items.append((y, m.group(2)))
-                continue
+        if m and m.group(1).replace(" ", "").upper() in _HEADER_MAP:
+            labels.append((y, _HEADER_MAP[m.group(1).replace(" ", "").upper()]))
+            values.append((y, m.group(2)))
+            continue
 
         # Pure label.
         key = s.replace(" ", "").upper()
         if key in _HEADER_MAP:
-            label_items.append((y, _HEADER_MAP[key]))
+            labels.append((y, _HEADER_MAP[key]))
         else:
             logger.debug("Unrecognized attribute token: %r", raw)
 
-    # Sort independently by Y so a single missed label only drops that one pair.
-    label_items.sort(key=lambda x: x[0])
-    value_items.sort(key=lambda x: x[0])
-    attrs = dict(zip([l for _, l in label_items], [v for _, v in value_items]))
+    attrs = {}
+    for side in ("L", "R"):
+        labels, values = cols[side]
+        labels.sort(key=lambda t: t[0])
+        values.sort(key=lambda t: t[0])
+        for (_ly, label), (_vy, value) in zip(labels, values):
+            attrs[label] = value
+
+    # Fallback: if the X split mis-bucketed labels and values into opposite
+    # columns (nothing paired), pair globally by Y so we still return data.
+    if not attrs and items:
+        gl, gv = [], []
+        for _x, y, raw, _c in items:
+            s = raw.strip()
+            if s.isdigit() and len(s) == 2:
+                gv.append((y, s))
+            else:
+                key = s.replace(" ", "").upper()
+                if key in _HEADER_MAP:
+                    gl.append((y, _HEADER_MAP[key]))
+        gl.sort(); gv.sort()
+        attrs = dict(zip([l for _, l in gl], [v for _, v in gv]))
+
     return attrs, _mean_conf(confs)
 
 
