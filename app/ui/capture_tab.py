@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 import cv2
 
 from ..core import capture
-from ..core.calibration import load_preset
+from ..core.calibration import resolve_calibration
 from ..core.profiles.base import get_profile
 from ..io.output_csv import CSVManager
 from .hotkey import HotkeyManager
@@ -31,10 +31,13 @@ logger = logging.getLogger(__name__)
 
 
 class CaptureTab(QWidget):
+    engine_ready = Signal(object)  # emits the Engine once OCR is initialized
+
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.settings = settings
-        self.preset = load_preset(settings.game_version, settings.profile)
+        self.calib = resolve_calibration(
+            settings.game_version, settings.profile, settings.monitor_number)
         self.engine = None
         self.frame = None              # current BGR frame (what will be scanned)
         self.last_result = None
@@ -113,10 +116,18 @@ class CaptureTab(QWidget):
         self.engine = engine
         self.scan_btn.setEnabled(True)
         self._set_status("Ready. Start Live or Load an image, then Scan.")
+        self.engine_ready.emit(engine)
+
+    def reload_calibration(self, calib: dict):
+        """Apply calibration edited/saved in the Calibrate tab without a restart."""
+        self.calib = calib
+        if self.engine is not None:
+            self.engine.rois = calib["rois"]
+        self._set_status("Calibration updated.")
 
     # ---- Capture / preview ----------------------------------------------
     def _capture_region(self) -> dict:
-        return capture.offsets_for_monitor(self.preset["global_offsets"], self.settings.monitor_number)
+        return capture.offsets_for_monitor(self.calib["global_offsets"], self.settings.monitor_number)
 
     def _toggle_live(self, on: bool):
         if on:
