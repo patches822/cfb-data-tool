@@ -10,7 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 
 from ..core import profiles  # noqa: F401  (registers built-in profiles)
-from ..core.calibration import load_preset
+from ..core.calibration import resolve_calibration
 from ..core.engine import Engine
 from ..core.profiles.base import get_profile
 
@@ -27,11 +27,13 @@ class EngineInitWorker(QThread):
         try:
             from ..core.ocr.rapidocr_engine import RapidOcrEngine
 
-            preset = load_preset(self.settings.game_version, self.settings.profile)
+            calib = resolve_calibration(
+                self.settings.game_version, self.settings.profile,
+                self.settings.monitor_number)
             engine = Engine(
                 RapidOcrEngine(),
                 get_profile(self.settings.profile),
-                preset["rois"],
+                calib["rois"],
             )
             self.ready.emit(engine)
         except Exception as exc:  # noqa: BLE001 — surface any init failure to the UI

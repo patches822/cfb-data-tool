@@ -10,10 +10,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
 )
-
-from ..core import capture
 
 
 class SettingsTab(QWidget):
@@ -25,15 +23,7 @@ class SettingsTab(QWidget):
         form = QFormLayout()
         root.addLayout(form)
 
-        # Monitor
-        self.monitor = QSpinBox()
-        self.monitor.setMinimum(1)
-        try:
-            self.monitor.setMaximum(max(1, len(capture.list_monitors()) - 1))
-        except Exception:  # noqa: BLE001
-            self.monitor.setMaximum(4)
-        self.monitor.setValue(settings.monitor_number)
-        form.addRow("Game monitor:", self.monitor)
+        # (Game monitor lives in the Calibrate tab, where you capture it.)
 
         # Output target + CSV path
         self.target = QComboBox()
@@ -89,7 +79,6 @@ class SettingsTab(QWidget):
 
     def _save(self):
         s = self.settings
-        s.monitor_number = self.monitor.value()
         s.output_target = self.target.currentText()
         s.output_csv_path = self.csv_path.text()
         s.hotkey = self.hotkey.text().strip() or "s"
