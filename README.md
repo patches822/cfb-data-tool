@@ -33,7 +33,7 @@ OCR was switched from EasyOCR to **RapidOCR (ONNX)** to drop the PyTorch depende
 
 ## Developer setup
 
-Requires **Python 3.10+**.
+Requires **Python 3.12+**.
 
 ```bash
 python -m venv .venv

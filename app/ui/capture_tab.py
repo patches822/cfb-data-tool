@@ -158,23 +158,10 @@ class CaptureTab(QWidget):
     # ---- Engine init -----------------------------------------------------
     def _init_engine(self):
         self._set_status("Initializing OCR engine…")
-        # Both RapidOCR (onnxruntime) and mss can hang or deadlock when called
-        # from a background thread on macOS.  Build everything on the main thread
-        # instead — it takes a few seconds but avoids platform issues.
-        from ..core.ocr.rapidocr_engine import RapidOcrEngine
-        from ..core.engine import Engine
-        from ..core.profiles.base import get_profile
-        try:
-            ocr = RapidOcrEngine()
-            engine = Engine(
-                ocr,
-                get_profile(self.settings.profile),
-                self.calib["rois"],
-                scale=self.calib.get("cv_scale", 1.0),
-            )
-            self._on_engine_ready(engine)
-        except Exception as exc:  # noqa: BLE001
-            self._set_status(f"OCR init failed: {exc}")
+        self._init_worker = EngineInitWorker(self.settings)
+        self._init_worker.ready.connect(self._on_engine_ready)
+        self._init_worker.failed.connect(lambda e: self._set_status(f"OCR init failed: {e}"))
+        self._init_worker.start()
 
     def _on_engine_ready(self, engine):
         self.engine = engine
