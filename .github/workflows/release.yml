@@ -68,8 +68,16 @@ jobs:
           CFB_SMOKE=1 ./dist/CFBDataTool.app/Contents/MacOS/CFBDataTool || true
           cat ./dist/CFBDataTool.app/Contents/MacOS/smoke_result.txt
 
+      - name: Report bundle size
+        run: |
+          echo "=== Uncompressed .app ==="
+          du -sh dist/CFBDataTool.app
+          du -sh dist/CFBDataTool.app/Contents/Frameworks dist/CFBDataTool.app/Contents/Resources dist/CFBDataTool.app/Contents/MacOS
+          echo "=== Largest files ==="
+          find dist/CFBDataTool.app -type f -size +5M -exec ls -lh {} \; | sort -k5 -h | tail -20
+
       - name: Zip .app for upload
-        run: cd dist && zip -9 -r CFBDataTool-macOS.zip CFBDataTool.app
+        run: cd dist && zip -9 -y -r CFBDataTool-macOS.zip CFBDataTool.app && ls -lh CFBDataTool-macOS.zip
 
       - uses: actions/upload-artifact@v4
         with:
@@ -77,6 +85,7 @@ jobs:
           path: dist/CFBDataTool-macOS.zip
 
   release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
