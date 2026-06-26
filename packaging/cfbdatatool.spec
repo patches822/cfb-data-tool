@@ -51,7 +51,7 @@ if IS_MAC:
         exclude_binaries=True,
         name="CFBDataTool",
         debug=False,
-        strip=False,
+        strip=True,
         upx=False,
         console=console,
     )
