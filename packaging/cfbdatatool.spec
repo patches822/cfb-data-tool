@@ -63,7 +63,7 @@ if IS_MAC:
         icon=os.path.join(SPECPATH, "icon.icns"),
         bundle_identifier="com.cfbdatatool.app",
         info_plist={
-            "CFBundleShortVersionString": "0.1.0",
+            "CFBundleShortVersionString": "0.1.2",
             "CFBundleName": "CFB Data Tool",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
