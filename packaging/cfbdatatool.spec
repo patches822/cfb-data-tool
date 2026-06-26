@@ -35,7 +35,13 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["torch", "tkinter", "matplotlib", "scipy", "pandas"],
+    excludes=[
+        "torch", "tkinter", "matplotlib", "scipy", "pandas",
+        "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtQmlMeta",
+        "PySide6.QtQmlModels", "PySide6.QtQmlWorkerScript",
+        "PySide6.QtPdf", "PySide6.QtNetwork", "PySide6.QtDBus",
+        "PySide6.QtOpenGL", "PySide6.QtSvg", "PySide6.QtVirtualKeyboard",
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
