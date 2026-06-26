@@ -87,7 +87,7 @@ Get-Content .\dist\CFBDataTool\smoke_result.txt   # should say "SMOKE OK"
 
 ```bash
 pip install pyinstaller       # in the venv
-python packaging/gen_icns.py  # generate icon.icns from icon.png (one-time, any platform)
+python packaging/gen_icons.py  # generate icon.icns + icon.ico from icon.png (one-time)
 bash packaging/build_mac.sh
 ```
 
