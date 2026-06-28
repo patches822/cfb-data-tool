@@ -96,6 +96,39 @@ def get_star_rating(
     return min(star_count, 5)
 
 
+def detect_ability_level(icon_img: np.ndarray) -> str:
+    """Classify an ability icon as Bronze, Silver, Gold, or Platinum via HSV color.
+
+    Bronze and gold share the same warm hue (~20) but differ in brightness:
+    gold is bright (V median ~180), bronze is dim (V median ~74).  They are
+    detected as a single warm mask, then separated by median V.
+    Silver is near-gray (very low saturation).
+    Platinum is purple/violet (H ~140).
+    """
+    hsv = cv2.cvtColor(icon_img, cv2.COLOR_BGR2HSV)
+
+    # Warm hue pixels (covers both gold and bronze)
+    warm_mask = cv2.inRange(hsv, np.array([8, 30, 36]), np.array([35, 255, 255]))
+    # Platinum: purple/violet hue, moderate-to-high saturation
+    plat_mask = cv2.inRange(hsv, np.array([120, 30, 36]), np.array([165, 255, 255]))
+    # Silver: low saturation (gray), bright enough to exclude dark background
+    silver_mask = cv2.inRange(hsv, np.array([0, 0, 90]), np.array([180, 50, 220]))
+
+    warm_count = cv2.countNonZero(warm_mask)
+    plat_count = cv2.countNonZero(plat_mask)
+    silver_count = cv2.countNonZero(silver_mask)
+
+    counts = {"warm": warm_count, "Platinum": plat_count, "Silver": silver_count}
+    best = max(counts, key=counts.get)
+    if counts[best] < 50:
+        return ""
+
+    if best == "warm":
+        warm_v = hsv[:, :, 2][warm_mask > 0]
+        return "Gold" if np.median(warm_v) >= 100 else "Bronze"
+    return best
+
+
 def detect_gem_status(roi_img: np.ndarray) -> str:
     """Return 'GEM' (green), 'BUST' (red), or 'NORMAL' via HSV color masking."""
     hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
