@@ -125,9 +125,15 @@ def resolve_calibration(game_version: str = "cfb26", profile: str = "recruits",
 
     user = load_user_calibration(game_version, profile, target)
     if user:
+        # Merge any ROI keys added to the bundled preset since the user last saved.
+        merged_rois = dict(user["rois"])
+        base_rois = base["rois"] if target == base_res else scale_rois(base["rois"], base_res, target)
+        for key, val in base_rois.items():
+            if key not in merged_rois:
+                merged_rois[key] = val
         return {
             "global_offsets": user["global_offsets"],
-            "rois": user["rois"],
+            "rois": merged_rois,
             "resolution": target,
             "cv_scale": cv_scale,
             "source": "user",

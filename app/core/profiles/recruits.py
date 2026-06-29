@@ -9,8 +9,11 @@ box) output.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from difflib import get_close_matches
+from pathlib import Path
 
 from .. import processor
 from .base import ScrapeProfile, register_profile
@@ -34,6 +37,27 @@ ATTRIBUTE_HEADERS = [
     "TACKLE", "HIT POWER", "BLOCK SHEDDING", "FINESSE MOVES", "POWER MOVES", "PURSUIT",
     "MAN COVERAGE", "ZONE COVERAGE", "PRESS", "KICK RETURN", "KICK POWER", "KICK ACCURACY",
     "STAMINA", "TOUGHNESS", "INJURY", "LONG SNAPPER",
+]
+
+ABILITY_HEADERS = [
+    "ABILITY_1", "ABILITY_1_LEVEL",
+    "ABILITY_2", "ABILITY_2_LEVEL",
+    "ABILITY_3", "ABILITY_3_LEVEL",
+    "ABILITY_4", "ABILITY_4_LEVEL",
+    "ABILITY_5", "ABILITY_5_LEVEL",
+]
+
+MENTAL_HEADERS = [
+    "MENTAL_1", "MENTAL_1_LEVEL",
+    "MENTAL_2", "MENTAL_2_LEVEL",
+    "MENTAL_3", "MENTAL_3_LEVEL",
+]
+
+MENTAL_NAMES = [
+    "Best Friend", "Clear Headed", "Clutch Kicker", "Defensive Rally",
+    "Fan Favorite", "Field General", "Hot Head", "Headstrong",
+    "Legion", "Offensive Rally", "Road Dog", "Team Player",
+    "The Natural", "Winning Time",
 ]
 
 POSITION_ATTRIBUTE_COUNT = {
@@ -276,6 +300,109 @@ def extract_gem_status(img, rois):
     return processor.detect_gem_status(_crop(img, rois["gem_icon"]))
 
 
+_ABILITIES_TABLE = None
+
+
+def _load_abilities_table():
+    global _ABILITIES_TABLE
+    if _ABILITIES_TABLE is None:
+        path = Path(__file__).resolve().parents[2] / "config" / "presets" / "cfb26" / "abilities.json"
+        _ABILITIES_TABLE = json.loads(path.read_text(encoding="utf-8"))
+    return _ABILITIES_TABLE
+
+
+def _get_expected_abilities(position: str, archetype: str) -> list[str]:
+    table = _load_abilities_table()
+    return table.get(position, {}).get(archetype, [])
+
+
+def _fuzzy_match_ability(ocr_text: str, expected: list[str]) -> str:
+    clean = ocr_text.strip()
+    for name in expected:
+        if clean.lower() == name.lower():
+            return name
+    matches = get_close_matches(clean, expected, n=1, cutoff=0.6)
+    return matches[0] if matches else clean
+
+
+def _group_by_y(items, threshold=25):
+    if not items:
+        return []
+    sorted_items = sorted(items, key=lambda it: it[1])
+    rows = [[sorted_items[0]]]
+    for item in sorted_items[1:]:
+        if abs(item[1] - rows[-1][0][1]) < threshold:
+            rows[-1].append(item)
+        else:
+            rows.append([item])
+    return rows
+
+
+def _extract_icons_and_text(items, cropped, header_filter):
+    """Shared extraction for abilities and mentals: pair icon colors with text."""
+    items = [(x, y, text, conf) for x, y, text, conf in items
+             if text.strip().upper() != header_filter]
+    confs = [conf for _, _, _, conf in items]
+    rows = _group_by_y(items, threshold=25)
+
+    icon_right = max(1, int(max(min(x for x, _, _, _ in row)
+                                   for row in rows) - 5)) if rows else 1
+
+    results = {}
+    for row_items in rows:
+
+        text_tokens = sorted(row_items, key=lambda r: r[0])
+        text = " ".join(t for _, _, t, _ in text_tokens)
+        if not text.strip():
+            continue
+
+        avg_y = sum(it[1] for it in row_items) / len(row_items)
+        band_top = max(0, int(avg_y - 15))
+        band_bot = min(cropped.shape[0], int(avg_y + 25))
+        icon_crop = cropped[band_top:band_bot, 0:icon_right]
+        level = ""
+        if icon_crop.size > 0:
+            level = processor.detect_ability_level(icon_crop)
+
+        results[text.strip()] = level
+
+    return results, _mean_conf(confs)
+
+
+def extract_abilities(ocr, img, rois, position: str, archetype: str):
+    roi = rois.get("abilities")
+    if roi is None:
+        return {}, 0.0
+
+    expected = _get_expected_abilities(position, archetype)
+    items = _read_with_xy(ocr, img, roi)
+    cropped = _crop(img, roi)
+
+    abilities, conf = _extract_icons_and_text(items, cropped, "ABILITIES")
+
+    if expected:
+        abilities = {_fuzzy_match_ability(name, expected): level
+                     for name, level in abilities.items()}
+
+    return abilities, conf
+
+
+def extract_mentals(ocr, img, rois):
+    roi = rois.get("mentals")
+    if roi is None:
+        return {}, 0.0
+
+    items = _read_with_xy(ocr, img, roi)
+    cropped = _crop(img, roi)
+
+    mentals, conf = _extract_icons_and_text(items, cropped, "MENTALS")
+
+    mentals = {_fuzzy_match_ability(name, MENTAL_NAMES): level
+               for name, level in mentals.items()}
+
+    return mentals, conf
+
+
 def extract_dev_trait(ocr, img, rois):
     pairs = _read(ocr, img, rois["dev_trait"])
     for text, conf in pairs:
@@ -297,12 +424,13 @@ class RecruitsProfile(ScrapeProfile):
     def roi_keys(self):
         return [
             "name", "position", "archetype", "recruit_class", "hometown",
-            "height_weight", "attributes", "star_rating", "gem_icon", "dev_trait",
+            "height_weight", "abilities", "mentals", "attributes",
+            "star_rating", "gem_icon", "dev_trait",
         ]
 
     @property
     def schema(self):
-        return BASIC_INFO_HEADERS + ATTRIBUTE_HEADERS
+        return BASIC_INFO_HEADERS + ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
 
     @property
     def dedupe_keys(self):
@@ -317,6 +445,8 @@ class RecruitsProfile(ScrapeProfile):
         hometown, conf["HOMETOWN"] = extract_hometown(ocr, img, rois)
         height, weight, hw_conf = extract_height_weight(ocr, img, rois)
         conf["HEIGHT"] = conf["WEIGHT"] = hw_conf
+        abilities, conf["abilities"] = extract_abilities(ocr, img, rois, position, archetype)
+        mentals, conf["mentals"] = extract_mentals(ocr, img, rois)
         attributes, conf["attributes"] = extract_attributes(ocr, img, rois)
         dev_trait, conf["DEV TRAIT"] = extract_dev_trait(ocr, img, rois)
 
@@ -331,6 +461,8 @@ class RecruitsProfile(ScrapeProfile):
             "CLASS": recruit_class,
             "HOMETOWN": hometown,
             "DEV TRAIT": dev_trait,
+            "abilities": abilities,
+            "mentals": mentals,
             "attributes": attributes,
             "_confidence": conf,
         }
@@ -351,6 +483,20 @@ class RecruitsProfile(ScrapeProfile):
 
     def to_row(self, record) -> list:
         row = [record.get(h, "") for h in BASIC_INFO_HEADERS]
+        ability_items = list(record.get("abilities", {}).items())
+        for i in range(5):
+            if i < len(ability_items):
+                name, level = ability_items[i]
+                row.extend([name, level])
+            else:
+                row.extend(["", ""])
+        mental_items = list(record.get("mentals", {}).items())
+        for i in range(3):
+            if i < len(mental_items):
+                name, level = mental_items[i]
+                row.extend([name, level])
+            else:
+                row.extend(["", ""])
         attrs = record.get("attributes", {})
         for header in ATTRIBUTE_HEADERS:
             row.append(attrs.get(header.upper(), ""))

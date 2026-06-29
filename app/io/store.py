@@ -42,6 +42,16 @@ class RecordStore:
             f"UNIQUE({unique}))"
         )
         self.conn.commit()
+        self._migrate_columns()
+
+    def _migrate_columns(self):
+        existing = {row[1] for row in self.conn.execute(
+            f'PRAGMA table_info("{self.table}")').fetchall()}
+        for col in self.columns:
+            if col not in existing:
+                self.conn.execute(
+                    f'ALTER TABLE "{self.table}" ADD COLUMN "{col}" TEXT')
+        self.conn.commit()
 
     def upsert(self, row: list) -> str:
         """Insert a row (aligned to profile.schema) or update the matching record.
