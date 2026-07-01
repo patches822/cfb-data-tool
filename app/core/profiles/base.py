@@ -12,21 +12,24 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-PROFILES: dict[str, "ScrapeProfile"] = {}
+PROFILES: dict[str, type["ScrapeProfile"]] = {}
 
 
 def register_profile(cls):
-    """Class decorator: instantiate and register a profile by its ``key``."""
-    instance = cls()
-    PROFILES[instance.key] = instance
+    """Class decorator: register a profile class by its ``key``."""
+    PROFILES[cls.key] = cls
     return cls
 
 
-def get_profile(key: str) -> "ScrapeProfile":
+def get_profile(key: str, game_version: str = "cfb26") -> "ScrapeProfile":
     try:
-        return PROFILES[key]
+        cls = PROFILES[key]
     except KeyError:
         raise KeyError(f"Unknown profile '{key}'. Registered: {sorted(PROFILES)}")
+    try:
+        return cls(game_version=game_version)
+    except TypeError:
+        return cls()
 
 
 class ScrapeProfile(ABC):

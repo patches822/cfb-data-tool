@@ -53,12 +53,6 @@ MENTAL_HEADERS = [
     "MENTAL_3", "MENTAL_3_LEVEL",
 ]
 
-MENTAL_NAMES = [
-    "Adrenaline", "Best Friend", "Clear Headed", "Clutch Kicker",
-    "Defensive Rally", "Fan Favorite", "Field General", "Headstrong",
-    "Instinct", "Legion", "Offensive Rally", "Road Dog",
-    "Rollercoaster", "Team Player", "The Natural", "Winning Time",
-]
 
 POSITION_ATTRIBUTE_COUNT = {
     "QB": 10, "HB": 10, "FB": 10, "WR": 10, "TE": 10,
@@ -305,35 +299,9 @@ def extract_gem_status(img, rois):
     return status, conf
 
 
-_ABILITIES_TABLE = None
-
-
-def _load_abilities_table():
-    global _ABILITIES_TABLE
-    if _ABILITIES_TABLE is None:
-        path = Path(__file__).resolve().parents[2] / "config" / "presets" / "cfb26" / "abilities.json"
-        _ABILITIES_TABLE = json.loads(path.read_text(encoding="utf-8"))
-    return _ABILITIES_TABLE
-
-
-def _get_expected_abilities(position: str, archetype: str) -> list[str]:
-    table = _load_abilities_table()
-    return table.get(position, {}).get(archetype, [])
-
-
-def get_position_archetypes(position: str) -> list[str]:
-    """All known archetypes for *position*, sorted alphabetically.
-
-    ATH (or any position absent from the table) returns the union of all
-    archetypes across every position, since an ATH recruit can play anywhere.
-    """
-    table = _load_abilities_table()
-    if position in table:
-        return sorted(table[position].keys())
-    all_archetypes: set[str] = set()
-    for archetypes in table.values():
-        all_archetypes.update(archetypes.keys())
-    return sorted(all_archetypes)
+def get_position_archetypes(position: str, game_version: str = "cfb26") -> list[str]:
+    """Module-level shim for backward compatibility with tests and external callers."""
+    return RecruitsProfile(game_version).get_position_archetypes(position)
 
 
 def _fuzzy_match_ability(ocr_text: str, expected: list[str]) -> str:
@@ -389,12 +357,12 @@ def _extract_icons_and_text(items, cropped, header_filter):
     return results, _mean_conf(confs)
 
 
-def extract_abilities(ocr, img, rois, position: str, archetype: str):
+def extract_abilities(ocr, img, rois, position: str, archetype: str, profile: "RecruitsProfile"):
     roi = rois.get("abilities")
     if roi is None:
         return {}, 0.0
 
-    expected = _get_expected_abilities(position, archetype)
+    expected = profile._get_expected_abilities(position, archetype)
     items = _read_with_xy(ocr, img, roi)
     cropped = _crop(img, roi)
 
@@ -407,7 +375,7 @@ def extract_abilities(ocr, img, rois, position: str, archetype: str):
     return abilities, conf
 
 
-def extract_mentals(ocr, img, rois):
+def extract_mentals(ocr, img, rois, profile: "RecruitsProfile"):
     roi = rois.get("mentals")
     if roi is None:
         return {}, 0.0
@@ -417,7 +385,7 @@ def extract_mentals(ocr, img, rois):
 
     mentals, conf = _extract_icons_and_text(items, cropped, "MENTALS")
 
-    mentals = {_fuzzy_match_ability(name, MENTAL_NAMES): level
+    mentals = {_fuzzy_match_ability(name, profile.mental_names): level
                for name, level in mentals.items()}
 
     return mentals, conf
@@ -440,17 +408,67 @@ class RecruitsProfile(ScrapeProfile):
     key = "recruits"
     display_name = "Recruits"
 
-    @property
-    def roi_keys(self):
-        return [
-            "name", "position", "archetype", "recruit_class", "hometown",
-            "height_weight", "abilities", "mentals", "attributes",
-            "star_rating", "gem_icon", "dev_trait",
-        ]
+    _FALLBACK_ROI_KEYS = [
+        "name", "position", "archetype", "recruit_class", "hometown",
+        "height_weight", "abilities", "mentals", "attributes",
+        "star_rating", "gem_icon", "dev_trait",
+    ]
+
+    def __init__(self, game_version: str = "cfb26"):
+        self.game_version = game_version
+        self._abilities_cache: dict | None = None
+        self._active_roi_keys = self._read_preset_roi_keys()
+
+    def _read_preset_roi_keys(self) -> list[str]:
+        path = (Path(__file__).resolve().parents[2]
+                / "config" / "presets" / self.game_version / "recruits.json")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return list(data.get("rois", {}).keys())
+        except FileNotFoundError:
+            return list(self._FALLBACK_ROI_KEYS)
+
+    def _load_abilities_table(self) -> dict:
+        if self._abilities_cache is None:
+            path = (Path(__file__).resolve().parents[2]
+                    / "config" / "presets" / self.game_version / "abilities.json")
+            self._abilities_cache = json.loads(path.read_text(encoding="utf-8"))
+        return self._abilities_cache
 
     @property
-    def schema(self):
-        return BASIC_INFO_HEADERS + ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
+    def mental_names(self) -> list[str]:
+        return self._load_abilities_table().get("_mentals", [])
+
+    def _get_expected_abilities(self, position: str, archetype: str) -> list[str]:
+        t = self._load_abilities_table()
+        return t.get(position, {}).get(archetype, [])
+
+    def get_position_archetypes(self, position: str) -> list[str]:
+        """All known archetypes for *position*, sorted alphabetically.
+
+        ATH (or any position absent from the table) returns the union of all
+        archetypes across every position, since an ATH recruit can play anywhere.
+        """
+        t = self._load_abilities_table()
+        pos = {k: v for k, v in t.items() if not k.startswith("_")}
+        if position in pos:
+            return sorted(pos[position].keys())
+        all_archetypes: set[str] = set()
+        for archetypes in pos.values():
+            all_archetypes.update(archetypes.keys())
+        return sorted(all_archetypes)
+
+    @property
+    def roi_keys(self) -> list[str]:
+        return self._active_roi_keys
+
+    @property
+    def schema(self) -> list[str]:
+        cols = list(BASIC_INFO_HEADERS)
+        # Future version-specific columns: add conditionally based on self._active_roi_keys
+        # e.g., if "new_cfb27_roi" in self._active_roi_keys: cols.append("NEW FIELD")
+        cols += ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
+        return cols
 
     @property
     def dedupe_keys(self):
@@ -465,8 +483,8 @@ class RecruitsProfile(ScrapeProfile):
         hometown, conf["HOMETOWN"] = extract_hometown(ocr, img, rois)
         height, weight, hw_conf = extract_height_weight(ocr, img, rois)
         conf["HEIGHT"] = conf["WEIGHT"] = hw_conf
-        abilities, conf["abilities"] = extract_abilities(ocr, img, rois, position, archetype)
-        mentals, conf["mentals"] = extract_mentals(ocr, img, rois)
+        abilities, conf["abilities"] = extract_abilities(ocr, img, rois, position, archetype, self)
+        mentals, conf["mentals"] = extract_mentals(ocr, img, rois, self)
         attributes, conf["attributes"] = extract_attributes(ocr, img, rois)
         dev_trait, conf["DEV TRAIT"] = extract_dev_trait(ocr, img, rois)
         stars, conf["STARS"] = extract_star_rating(img, rois, scale=scale)

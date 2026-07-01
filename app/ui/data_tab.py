@@ -86,6 +86,16 @@ class DataTab(QWidget):
         root.addWidget(self.count_label)
 
     # ---- data ------------------------------------------------------------
+    def rebuild_for_store(self, store):
+        """Swap in a new store (e.g. when game_version changes) and refresh."""
+        self.store = store
+        self.display_headers = ["ID"] + store.headers + ["Scanned"]
+        self.col_keys = ["id"] + store.columns + ["scanned_at"]
+        self.model.clear()
+        self.model.setColumnCount(len(self.display_headers))
+        self.model.setHorizontalHeaderLabels(self.display_headers)
+        self.refresh()
+
     def refresh(self):
         rows = self.store.all()
         self.model.setRowCount(0)

@@ -19,8 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.profiles.recruits import (
-    ATTRIBUTE_HEADERS, BASIC_INFO_HEADERS, MENTAL_NAMES, POSITION_ATTRIBUTE_COUNT,
-    POSITIONS, get_position_archetypes,
+    ATTRIBUTE_HEADERS, BASIC_INFO_HEADERS, POSITION_ATTRIBUTE_COUNT, POSITIONS,
 )
 
 _GEM_OPTIONS = ["NORMAL", "GEM", "BUST"]
@@ -145,6 +144,9 @@ class ResultCard(QWidget):
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
+    def reload_profile(self, profile) -> None:
+        self.profile = profile
+
     # ---- public API ------------------------------------------------------
     def show_result(self, result):
         self.show_record(result.record)
@@ -165,6 +167,22 @@ class ResultCard(QWidget):
     def edited_record(self) -> dict | None:
         """The record with any user corrections applied (what should be saved)."""
         return self._record
+
+    def clear(self):
+        """Reset to the empty 'No scan yet' state (e.g. the review queue emptied)."""
+        self._record = None
+        self._field_widgets.clear()
+        self._ability_widgets.clear()
+        self._mental_widgets.clear()
+        self._attr_widgets.clear()
+        self._clear(self._basics)
+        self._clear(self._abilities)
+        self._clear(self._mentals)
+        self._clear(self._attrs)
+        self._abilities_box.setVisible(False)
+        self._mentals_box.setVisible(False)
+        self.status.setText("No scan yet")
+        self.status.setStyleSheet("font-weight:bold; padding:6px; border-radius:4px;")
 
     # ---- build widgets ---------------------------------------------------
     def _clear(self, layout):
@@ -238,7 +256,9 @@ class ResultCard(QWidget):
         return le
 
     def _archetype_options(self, position: str) -> list[str]:
-        return [""] + get_position_archetypes(position)
+        if self.profile is None:
+            return [""]
+        return [""] + self.profile.get_position_archetypes(position)
 
     def _on_position_changed(self, new_position):
         archetype_cb = self._field_widgets.get("ARCHETYPE")
@@ -278,9 +298,10 @@ class ResultCard(QWidget):
         self._mentals_box.setVisible(bool(mentals))
         color = _conf_color(self._record.get("_confidence", {}).get("mentals"), self.threshold)
         for row, (name, level) in enumerate(mentals.items()):
+            mental_names = self.profile.mental_names if self.profile else []
             name_cb = QComboBox()
-            name_cb.addItems([""] + MENTAL_NAMES)
-            name_cb.setCurrentText(str(name) if str(name) in MENTAL_NAMES else "")
+            name_cb.addItems([""] + mental_names)
+            name_cb.setCurrentText(str(name) if str(name) in mental_names else "")
             name_cb.currentTextChanged.connect(
                 lambda v, old=name: self._on_mental_name_edit(old, v))
             level_cb = QComboBox()

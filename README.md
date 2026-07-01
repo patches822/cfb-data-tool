@@ -13,6 +13,7 @@ This is the GUI successor to the [cf26-recruit-scraper](https://github.com/patch
 - **Live OCR confidence + inline correction** — low-confidence fields are flagged so you can fix a misread before saving.
 - **Auto-capture / batch mode** — optionally detect new cards and queue them for review. Invalid scans stay in the queue after saving so you can fix or discard them.
 - **Abilities & mentals** — scrapes ability names with tier detection (Bronze/Silver/Gold/Platinum) and mental traits from the recruit card.
+- **Multi-game-version support** — switch the active game (e.g. CFB 26 / CFB 27) from a dropdown always visible above the tabs; each version gets its own ROI/ability presets and its own collection in the Data tab.
 - **One-click install** — Windows installer (PyInstaller + Inno Setup) and macOS `.app` bundle (+ optional DMG).
 
 ## Architecture
@@ -27,7 +28,7 @@ app/core/engine.py     scan(image) -> ScanResult  (produces results; never saves
 app/core/capture.py    screen capture via mss (BGR numpy arrays)
 app/core/sound.py      cross-platform sound playback (.wav / .aiff)
 app/io/                SQLite record store + CSV export
-app/config/presets/    JSON ROI presets (e.g. cfb26/recruits.json)
+app/config/presets/    JSON ROI/ability presets per game version (cfb26/, cfb27/, ...)
 ```
 
 OCR was switched from EasyOCR to **RapidOCR (ONNX)** to drop the PyTorch dependency, shrinking the install from ~2 GB to ~250 MB and removing the GPU requirement.

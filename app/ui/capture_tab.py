@@ -160,7 +160,8 @@ class CaptureTab(QWidget):
 
         # Right: result card (editable, for inline correction)
         self.result_card = ResultCard(
-            self.settings.confidence_threshold, get_profile(self.settings.profile))
+            self.settings.confidence_threshold,
+            get_profile(self.settings.profile, self.settings.game_version))
         self.result_card.changed.connect(self._on_card_changed)
         root.addWidget(self.result_card, 1)
 
@@ -188,6 +189,16 @@ class CaptureTab(QWidget):
             self.engine.rois = calib["rois"]
             self.engine.scale = calib.get("cv_scale", 1.0)
         self._set_status("Calibration updated.")
+
+    def reload_game_version(self, game_version: str):
+        """Reinitialize the engine and result card when the game version changes."""
+        new_profile = get_profile(self.settings.profile, game_version)
+        self.result_card.reload_profile(new_profile)
+        self._init_engine()
+
+    def pending_review_count(self) -> int:
+        """Scans sitting in the auto-capture review queue, awaiting Save/Discard."""
+        return len(self._queue)
 
     # ---- Capture / preview ----------------------------------------------
     def _capture_region(self) -> dict:
@@ -377,7 +388,7 @@ class CaptureTab(QWidget):
             self._refresh_queue_item(self._active_queue_row)
 
     def _queue_label(self, record: dict) -> str:
-        valid, _ = get_profile(self.settings.profile).validate(record)
+        valid, _ = get_profile(self.settings.profile, self.settings.game_version).validate(record)
         mark = "✓" if valid else "✗"
         return (f"{mark} {record.get('NAME', '?')} — {record.get('POSITION', '?')} "
                 f"— ⭐{record.get('STARS', '?')}")
@@ -423,14 +434,17 @@ class CaptureTab(QWidget):
         self.queue_list.takeItem(row)
         self._active_queue_row = None
         self._update_queue_buttons()
-        if was_viewing:
-            if self._queue:
+        if self._queue:
+            if was_viewing:
                 # Qt auto-selects an adjacent row after takeItem; let that
                 # selection show its snapshot instead of resuming live.
                 next_row = self.queue_list.currentRow()
                 if 0 <= next_row < len(self._queue):
                     self._on_queue_select(next_row)
-            else:
+        else:
+            self.result_card.clear()
+            self.save_btn.setEnabled(False)
+            if was_viewing:
                 self._resume_live()
 
     def _remove_selected(self):
@@ -446,7 +460,7 @@ class CaptureTab(QWidget):
     def _save_all(self):
         if not self._queue:
             return
-        profile = get_profile(self.settings.profile)
+        profile = get_profile(self.settings.profile, self.settings.game_version)
         saved = 0
         keep_idx = []
         for i, record in enumerate(self._queue):
@@ -462,8 +476,11 @@ class CaptureTab(QWidget):
             self.queue_list.addItem(self._queue_label(record))
         self._active_queue_row = None
         self._update_queue_buttons()
-        if not self._queue and self._viewing_snapshot:
-            self._resume_live()
+        if not self._queue:
+            self.result_card.clear()
+            self.save_btn.setEnabled(False)
+            if self._viewing_snapshot:
+                self._resume_live()
         self.recruit_saved.emit()
         skipped = len(keep_idx)
         msg = f"Saved {saved} recruit(s) to the collection."
@@ -477,6 +494,8 @@ class CaptureTab(QWidget):
         self.queue_list.clear()
         self._active_queue_row = None
         self._update_queue_buttons()
+        self.result_card.clear()
+        self.save_btn.setEnabled(False)
         if self._viewing_snapshot:
             self._resume_live()
 
@@ -485,7 +504,7 @@ class CaptureTab(QWidget):
         record = self.result_card.edited_record()  # includes any inline corrections
         if record is None:
             return
-        profile = get_profile(self.settings.profile)
+        profile = get_profile(self.settings.profile, self.settings.game_version)
         action = self.store.upsert(profile.to_row(record))
         self.save_btn.setEnabled(False)
         name = record.get("NAME", "recruit")

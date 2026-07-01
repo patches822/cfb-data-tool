@@ -1,15 +1,14 @@
 {
   "_mentals": [
-    "Adrenaline", "Best Friend", "Clear Headed", "Clutch Kicker",
-    "Defensive Rally", "Fan Favorite", "Field General", "Headstrong",
-    "Instinct", "Legion", "Offensive Rally", "Road Dog",
-    "Rollercoaster", "Team Player", "The Natural", "Winning Time"
+    "Best Friend", "Clear Headed", "Clutch Kicker", "Defensive Rally", 
+    "Fan Favorite", "Field General", "Hot Head", "Headstrong", "Legion", 
+    "Offensive Rally", "Road Dog", "Team Player", "The Natural", "Winning Time"
   ],
   "QB": {
-    "Backfield Creator": ["Off Platform", "Pull Down", "On Time", "Sleight of Hand", "Mobile Deadeye"],
+    "Backfield Creator": ["Off Platform", "Pull Down", "On Time", "Magician", "Mobile Deadeye"],
     "Dual Threat": ["Downhill", "Extender", "Option King", "Dot!", "Mobile Resistance"],
     "Pocket Passer": ["Resistance", "Step Up", "Sleight Of Hand", "Dot!", "On Time"],
-    "Pure Runner": ["Magician", "Option King", "Shifty", "Side Step", "Workhorse"]
+    "Pure Runner": ["Downhill", "Option King", "Shifty", "Side Step", "Workhorse"]
   },
   "HB": {
     "Backfield Threat": ["360", "Safety Valve", "Takeoff", "Side Step", "Recoup"],

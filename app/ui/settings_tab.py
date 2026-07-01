@@ -26,7 +26,8 @@ class SettingsTab(QWidget):
         form = QFormLayout()
         root.addLayout(form)
 
-        # (Game monitor lives in the Calibrate tab, where you capture it.)
+        # (Game version lives in the header bar above the tabs, always visible.
+        # Game monitor lives in the Calibrate tab, where you capture it.)
 
         # Scans always go into the SQLite collection (Data tab). This sets the
         # default location for CSV exports from there.

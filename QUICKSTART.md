@@ -30,6 +30,8 @@ The first launch takes a few seconds while the text-recognition engine loads.
 
 The tool reads recruit info straight from your screen, so it needs to know **where the recruit card is**. You only do this once.
 
+> **Playing a different game version?** Pick the right one from the **Game version** dropdown at the top of the window (visible on every tab) before you calibrate — each version has its own regions and its own saved collection in the Data tab.
+
 1. Open the **Calibrate** tab.
 2. Set **Edit:** to **"Game capture area"** and pick the **Game monitor** the game is on.
 3. With a recruit's card open in the game, click **Re-capture Full Monitor**.
@@ -66,6 +68,8 @@ The **Data** tab is your collection — sortable and filterable. Re-scanning a r
 ---
 
 ## 5. Settings worth knowing
+
+The **Game version** dropdown lives at the top of the window (not in Settings) so you can switch it from any tab. Switching swaps to that version's regions and its own separate collection in the Data tab. If you have recruits waiting in the Capture tab's review queue, it'll ask you to confirm before switching.
 
 - **Default export CSV** — where CSV exports land when you click **Export CSV** in the Data tab.
 - **Scan hotkey** — click the field and press the key you want. Changes take effect after a restart.
