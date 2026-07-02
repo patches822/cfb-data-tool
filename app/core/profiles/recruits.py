@@ -62,8 +62,17 @@ EXPORT_ATTRIBUTE_MAP = {
 EXPORT_HEADERS = [
     "game", "player_name", "position", "star", "national_rank", "scouting_status",
     "archetype", "is_athlete", "dev_trait", "height",
-    "weight", "nil_value", "abilities", "mentals",
+    "weight", "expected_nil_value", "abilities", "mentals",
 ] + list(EXPORT_ATTRIBUTE_MAP.keys())
+
+# The external tool doesn't distinguish left/right O-line or edge spots, or
+# WILL/SAM outside linebacker spots (MIKE stays distinct as the middle 'backer).
+EXPORT_POSITION_MAP = {
+    "LT": "OT", "RT": "OT",
+    "LG": "OG", "RG": "OG",
+    "LEDG": "EDGE", "REDG": "EDGE",
+    "WILL": "OLB", "SAM": "OLB",
+}
 
 ABILITY_HEADERS = [
     "ABILITY_1", "ABILITY_1_LEVEL",
@@ -629,12 +638,18 @@ class RecruitsProfile(ScrapeProfile):
         table = self._load_abilities_table()
         return table.get("_ath_positions", {}).get(archetype, "")
 
+    def _export_game_label(self) -> str:
+        """"cfb26" -> "CFB 26" for the external export's ``game`` column."""
+        m = re.match(r"([a-zA-Z]+)(\d+)", self.game_version)
+        return f"{m.group(1).upper()} {m.group(2)}" if m else self.game_version
+
     def to_export_row(self, row: dict) -> list:
         position = row.get("POSITION", "")
         archetype = row.get("ARCHETYPE", "")
         is_athlete = position == "ATH"
         resolved_position = self._resolve_ath_position(archetype) if is_athlete else ""
         final_position = resolved_position or position
+        final_position = EXPORT_POSITION_MAP.get(final_position, final_position)
 
         ability_parts = []
         for i in range(1, 6):
@@ -653,7 +668,7 @@ class RecruitsProfile(ScrapeProfile):
         mentals = "; ".join(mental_parts)
 
         out = [
-            self.game_version,
+            self._export_game_label(),
             row.get("NAME", ""),
             final_position,
             row.get("STARS", ""),
