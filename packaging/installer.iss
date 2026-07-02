@@ -4,7 +4,7 @@
 ; Produces: dist\installer\CFBDataTool-Setup.exe
 
 #define MyAppName "CFB Data Tool"
-#define MyAppVersion "0.1.3"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "Tyler Patchoski"
 #define MyAppExeName "CFBDataTool.exe"
 

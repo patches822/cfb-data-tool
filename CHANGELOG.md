@@ -2,19 +2,33 @@
 
 All notable changes to CFB Data Tool are documented here.
 
-## [Unreleased]
+## [0.2.0] — 2026-07-02
 
 ### Added
 
+- **Multi-game-version support with in-app switcher** — recruit profiles, ROI presets, and the SQLite store are now versioned per game (CFB 26 / CFB 27), selected via a persistent "Game version" dropdown above the tabs (replacing the buried Settings-tab option). Switching rebuilds the store, reloads the Capture tab's engine/profile, and refreshes the Data tab; if recruits are sitting in the review queue it confirms first, since their ability/mental dropdowns would otherwise silently start reflecting the new game.
+- **CFB 27 preset** (`app/config/presets/cfb27/`) as the second supported game version.
 - **Linux desktop support (Wayland-first)** — new `app/platform/` layer with pluggable capture, hotkey, and sound backends. Wayland live capture uses xdg-desktop-portal monitor screencast (PipeWire) with client-side ROI cropping; Windows and macOS continue using `mss`.
 - **Linux AppImage packaging** — `packaging/build_linux.sh` produces a portable AppImage with Qt Wayland/XCB platform plugins bundled.
 - **Linux sound playback** — `paplay`/`aplay` with freedesktop sound theme discovery and bundled fallback `.wav` files.
 - **CI and release** — `ubuntu-latest` smoke tests; Linux AppImage attached to GitHub Releases alongside Windows and macOS artifacts.
+- **External-tool CSV export format** — "Export CSV" now writes a fixed column set for a downstream external tool instead of the app's internal schema: renamed/computed fields (`player_name`, `scouting_status`, `is_athlete`), a resolved real position for ATH cards via a per-game-version archetype whitelist, separate abilities/mentals columns, and abbreviated attribute codes. Adds two newly captured fields, `national_rank` (both versions) and `nil_value` (CFB 27 only).
+- **Per-game-version star rating template** — star count detection now uses the correct template image for the active game version.
+
+### Fixed
+
+- **Position names aligned to CFB 26** — updated throughout (`POSITION_ATTRIBUTE_COUNT`, `abilities.json`, and the `POSITIONS` constant) to match what the game shows on recruit cards: OT → LT/RT, OG → LG/RG, DE → LEDG/REDG, OLB → WILL/SAM, MLB → MIKE.
+- **Platform icon generation** now runs during the build process, with a corrected ICO saving method.
+- **Portal D-Bus stream parsing** hardened against compositor variants (Linux Wayland capture).
+- **Calibrate tab** now reloads its ROI list on a game-version switch instead of showing stale ROIs from the previous version.
+- **Result card field list** is now built from the profile's version-aware headers instead of a static header constant, so `nil_value` appears for CFB 27.
+- **Review queue** (Save All / Remove Selected / Clear) now resets the result card once the queue empties, instead of leaving the last reviewed recruit's data on screen.
 
 ### Changed
 
 - `app/core/capture.py` and `app/core/sound.py` are now thin facades over platform backends.
 - macOS dark theme setup moved to `app/platform/ui_theme.py`.
+- Documentation (README, QUICKSTART, CLAUDE.md) updated for the game-version header bar and per-version preset/table layout.
 
 ---
 
