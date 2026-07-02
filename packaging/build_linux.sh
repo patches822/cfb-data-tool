@@ -41,7 +41,7 @@ fi
 ARCH="$(uname -m)"
 OUTPUT="dist/CFBDataTool-${ARCH}.AppImage"
 rm -f "$OUTPUT"
-ARCH="$ARCH" "$APPIMAGETOOL" "$APPDIR" -o "$OUTPUT"
+ARCH="$ARCH" "$APPIMAGETOOL" "$APPDIR" "$OUTPUT"
 echo "==> AppImage ready: $OUTPUT"
 
 if [ "${CFB_SMOKE:-}" = "1" ]; then
