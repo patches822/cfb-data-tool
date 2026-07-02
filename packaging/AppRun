@@ -23,4 +23,12 @@ if [ -z "${QT_QPA_PLATFORM:-}" ]; then
     export QT_QPA_PLATFORM="wayland;xcb"
 fi
 
+# The AppImage mounts itself read-only, so the frozen app can't write its
+# smoke-test result next to its own executable (the default behavior on
+# Windows/macOS). $APPIMAGE is set by the AppImage runtime to the path of
+# the .AppImage file itself, which lives on the real, writable filesystem.
+if [ -n "${APPIMAGE:-}" ]; then
+    export CFB_SMOKE_OUT="$(dirname "$APPIMAGE")/smoke_result.txt"
+fi
+
 exec "${BIN}/CFBDataTool" "$@"

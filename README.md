@@ -134,7 +134,7 @@ Verify a bundle without launching the UI:
 
 ```bash
 QT_QPA_PLATFORM=offscreen CFB_SMOKE=1 ./dist/CFBDataTool-x86_64.AppImage
-cat dist/CFBDataTool/smoke_result.txt   # should say "SMOKE OK"
+cat dist/smoke_result.txt   # should say "SMOKE OK"
 ```
 
 > **Linux notes:** Global scan hotkeys may not work on Wayland without extra permissions — use the on-screen **Scan** button. **Load Image…** works without portal permission.
