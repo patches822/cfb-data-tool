@@ -5,6 +5,17 @@
     "Instinct", "Legion", "Offensive Rally", "Road Dog",
     "Rollercoaster", "Team Player", "The Natural", "Winning Time"
   ],
+  "_ath_positions": {
+    "Dual Threat": "QB",
+    "East/West Playmaker": "HB",
+    "Backfield Threat": "HB",
+    "Contact Seeker": "HB",
+    "Contested Specialist": "WR",
+    "Pure Possession": "TE",
+    "Agile": "C",
+    "Power Rusher": "LEDG",
+    "Thumper": "MIKE"
+  },
   "QB": {
     "Backfield Creator": ["Off Platform", "Pull Down", "On Time", "Sleight of Hand", "Mobile Deadeye"],
     "Dual Threat": ["Downhill", "Extender", "Option King", "Dot!", "Mobile Resistance"],

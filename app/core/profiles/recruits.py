@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # --- Output schema (column order for CSV/SQLite) ---
 BASIC_INFO_HEADERS = [
     "NAME", "POSITION", "ARCHETYPE", "STARS", "GEM",
-    "HEIGHT", "WEIGHT", "CLASS", "HOMETOWN", "DEV TRAIT",
+    "HEIGHT", "WEIGHT", "CLASS", "HOMETOWN", "DEV TRAIT", "NATIONAL RANK",
 ]
 
 ATTRIBUTE_HEADERS = [
@@ -38,6 +38,32 @@ ATTRIBUTE_HEADERS = [
     "MAN COVERAGE", "ZONE COVERAGE", "PRESS", "KICK RETURN", "KICK POWER", "KICK ACCURACY",
     "STAMINA", "TOUGHNESS", "INJURY", "LONG SNAPPER",
 ]
+
+# Abbreviated attribute codes expected by the external export tool, mapped to the
+# full ATTRIBUTE_HEADERS names above. KICK RETURN/STAMINA/TOUGHNESS/INJURY/LONG SNAPPER
+# aren't requested by the external tool and are intentionally omitted.
+EXPORT_ATTRIBUTE_MAP = {
+    "SPD": "SPEED", "ACC": "ACCELERATION", "AGI": "AGILITY", "COD": "CHANGE OF DIRECTION",
+    "STR": "STRENGTH", "JMP": "JUMPING", "AWR": "AWARENESS", "CAR": "CARRYING",
+    "BCV": "BC VISION", "BTK": "BREAK TACKLE", "TRK": "TRUCKING", "SFA": "STIFF ARM",
+    "JKM": "JUKE MOVE", "SPM": "SPIN MOVE", "CTH": "CATCHING", "CIT": "CATCH IN TRAFFIC",
+    "SPC": "SPECTACULAR CATCH", "SRR": "SHORT ROUTE", "MRR": "MEDIUM ROUTE",
+    "DRR": "DEEP ROUTE", "RLS": "RELEASE", "THP": "THROW POWER", "SAC": "SHORT ACCURACY",
+    "MAC": "MEDIUM ACCURACY", "DAC": "DEEP ACCURACY", "TUP": "UNDER PRESSURE",
+    "RUN": "THROW ON RUN", "PAC": "PLAY ACTION", "BSK": "BREAK SACK", "PBK": "PASS BLOCK",
+    "PBP": "PASS BLOCK POWER", "PBF": "PASS BLOCK FINESSE", "RBK": "RUN BLOCK",
+    "RBP": "RUN BLOCK POWER", "RBF": "RUN BLOCK FINESSE", "IBL": "IMPACT BLOCKING",
+    "LBK": "LEAD BLOCK", "TAK": "TACKLE", "PUR": "PURSUIT", "PRC": "PLAY RECOGNITION",
+    "BSH": "BLOCK SHEDDING", "PMV": "POWER MOVES", "FMV": "FINESSE MOVES",
+    "ZCV": "ZONE COVERAGE", "MCV": "MAN COVERAGE", "PRS": "PRESS", "HPW": "HIT POWER",
+    "KPW": "KICK POWER", "KAC": "KICK ACCURACY",
+}
+
+EXPORT_HEADERS = [
+    "game", "player_name", "position", "star", "national_rank", "scouting_status",
+    "archetype", "is_athlete", "dev_trait", "height",
+    "weight", "nil_value", "abilities", "mentals",
+] + list(EXPORT_ATTRIBUTE_MAP.keys())
 
 ABILITY_HEADERS = [
     "ABILITY_1", "ABILITY_1_LEVEL",
@@ -401,6 +427,32 @@ def extract_dev_trait(ocr, img, rois):
     return "", 0.0
 
 
+def extract_national_rank(ocr, img, rois):
+    roi = rois.get("national_rank")
+    if roi is None:
+        return "", 0.0
+    pairs = _read(ocr, img, roi)
+    s = " ".join(t for t, _ in pairs)
+    # The card shows a label prefix ("NAT:347", "National Rank #12", ...) — the
+    # rank itself is just the digits, wherever the label formatting lands them.
+    m = re.search(r"(\d+)", s)
+    result = m.group(1) if m else ""
+    return result, _mean_conf([c for _, c in pairs])
+
+
+def extract_nil_value(ocr, img, rois):
+    roi = rois.get("nil_value")
+    if roi is None:
+        return "", 0.0
+    pairs = _read(ocr, img, roi)
+    s = " ".join(t for t, _ in pairs)
+    # Card shows "EXPECTED NIL" + an icon (not OCR'd) + a plain number ("120") —
+    # pull the digits out rather than trying to strip every label word.
+    m = re.search(r"(\d+)", s)
+    result = m.group(1) if m else ""
+    return result, _mean_conf([c for _, c in pairs])
+
+
 # ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
@@ -412,7 +464,7 @@ class RecruitsProfile(ScrapeProfile):
     _FALLBACK_ROI_KEYS = [
         "name", "position", "archetype", "recruit_class", "hometown",
         "height_weight", "abilities", "mentals", "attributes",
-        "star_rating", "gem_icon", "dev_trait",
+        "star_rating", "gem_icon", "dev_trait", "national_rank", "nil_value",
     ]
 
     def __init__(self, game_version: str = "cfb26"):
@@ -475,12 +527,19 @@ class RecruitsProfile(ScrapeProfile):
         return self._active_roi_keys
 
     @property
-    def schema(self) -> list[str]:
+    def basic_info_headers(self) -> list[str]:
+        """BASIC_INFO_HEADERS plus any version-conditional basic fields
+        (e.g. NIL VALUE is CFB 27 only). Used by both ``schema``/``to_row``
+        and the Capture tab's result card, so the UI stays in sync with
+        whichever fields this game version actually captures."""
         cols = list(BASIC_INFO_HEADERS)
-        # Future version-specific columns: add conditionally based on self._active_roi_keys
-        # e.g., if "new_cfb27_roi" in self._active_roi_keys: cols.append("NEW FIELD")
-        cols += ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
+        if "nil_value" in self._active_roi_keys:
+            cols.append("NIL VALUE")
         return cols
+
+    @property
+    def schema(self) -> list[str]:
+        return self.basic_info_headers + ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
 
     @property
     def dedupe_keys(self):
@@ -501,8 +560,9 @@ class RecruitsProfile(ScrapeProfile):
         dev_trait, conf["DEV TRAIT"] = extract_dev_trait(ocr, img, rois)
         stars, conf["STARS"] = extract_star_rating(img, rois, self, scale=scale)
         gem, conf["GEM"] = extract_gem_status(img, rois)
+        national_rank, conf["NATIONAL RANK"] = extract_national_rank(ocr, img, rois)
 
-        return {
+        record = {
             "NAME": name,
             "POSITION": position,
             "ARCHETYPE": archetype,
@@ -513,11 +573,16 @@ class RecruitsProfile(ScrapeProfile):
             "CLASS": recruit_class,
             "HOMETOWN": hometown,
             "DEV TRAIT": dev_trait,
+            "NATIONAL RANK": national_rank,
             "abilities": abilities,
             "mentals": mentals,
             "attributes": attributes,
             "_confidence": conf,
         }
+        if "nil_value" in self._active_roi_keys:
+            nil_value, conf["NIL VALUE"] = extract_nil_value(ocr, img, rois)
+            record["NIL VALUE"] = nil_value
+        return record
 
     def validate(self, record) -> tuple[bool, list[str]]:
         missing = [k for k in _REQUIRED if record.get(k) in ("Error", "", None)]
@@ -534,7 +599,7 @@ class RecruitsProfile(ScrapeProfile):
         return (not missing), missing
 
     def to_row(self, record) -> list:
-        row = [record.get(h, "") for h in BASIC_INFO_HEADERS]
+        row = [record.get(h, "") for h in self.basic_info_headers]
         ability_items = list(record.get("abilities", {}).items())
         for i in range(5):
             if i < len(ability_items):
@@ -553,3 +618,56 @@ class RecruitsProfile(ScrapeProfile):
         for header in ATTRIBUTE_HEADERS:
             row.append(attrs.get(header.upper(), ""))
         return row
+
+    @property
+    def export_headers(self) -> list[str]:
+        return EXPORT_HEADERS
+
+    def _resolve_ath_position(self, archetype: str) -> str:
+        """Look up the real position for an ATH card's archetype via the
+        game version's ``_ath_positions`` whitelist. Empty string if unknown."""
+        table = self._load_abilities_table()
+        return table.get("_ath_positions", {}).get(archetype, "")
+
+    def to_export_row(self, row: dict) -> list:
+        position = row.get("POSITION", "")
+        archetype = row.get("ARCHETYPE", "")
+        is_athlete = position == "ATH"
+        resolved_position = self._resolve_ath_position(archetype) if is_athlete else ""
+        final_position = resolved_position or position
+
+        ability_parts = []
+        for i in range(1, 6):
+            name = row.get(f"ABILITY_{i}", "")
+            if name:
+                level = row.get(f"ABILITY_{i}_LEVEL", "")
+                ability_parts.append(f"{name} ({level})" if level else name)
+        abilities = "; ".join(ability_parts)
+
+        mental_parts = []
+        for i in range(1, 4):
+            name = row.get(f"MENTAL_{i}", "")
+            if name:
+                level = row.get(f"MENTAL_{i}_LEVEL", "")
+                mental_parts.append(f"{name} ({level})" if level else name)
+        mentals = "; ".join(mental_parts)
+
+        out = [
+            self.game_version,
+            row.get("NAME", ""),
+            final_position,
+            row.get("STARS", ""),
+            row.get("NATIONAL RANK", ""),
+            row.get("GEM", ""),
+            archetype,
+            "yes" if is_athlete else "no",
+            row.get("DEV TRAIT", ""),
+            row.get("HEIGHT", ""),
+            row.get("WEIGHT", ""),
+            row.get("NIL VALUE", ""),
+            abilities,
+            mentals,
+        ]
+        for full_header in EXPORT_ATTRIBUTE_MAP.values():
+            out.append(row.get(full_header, ""))
+        return out

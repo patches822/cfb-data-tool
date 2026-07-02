@@ -192,10 +192,15 @@ class ResultCard(QWidget):
             if w:
                 w.deleteLater()
 
+    def _basic_info_headers(self) -> list[str]:
+        if self.profile is not None:
+            return self.profile.basic_info_headers
+        return BASIC_INFO_HEADERS
+
     def _build_basics(self):
         self._clear(self._basics)
         conf = self._record.get("_confidence", {})
-        for row, key in enumerate(BASIC_INFO_HEADERS):
+        for row, key in enumerate(self._basic_info_headers()):
             label = QLabel(key.title())
             label.setStyleSheet("color:#aaa;")
             widget = self._make_widget(key, self._record.get(key, ""))

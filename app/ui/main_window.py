@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self.capture_tab.store = self.store
         self.data_tab.rebuild_for_store(self.store)
         self.capture_tab.reload_game_version(game_version)
+        self.calibration_tab.reload_game_version(game_version)
 
     def _show_update_banner(self, version: str, url: str):
         self._release_url = url

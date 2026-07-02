@@ -150,13 +150,17 @@ class DataTab(QWidget):
         self.count_label.setText(f"Exported {n} recruit(s) to {path}")
 
     def export_to(self, path) -> int:
-        """Write the schema columns of the currently-visible (filtered/sorted) rows
-        to a CSV at ``path``. Returns the number of rows written."""
-        schema_cols = list(range(1, 1 + len(self.store.headers)))  # skip ID at col 0
+        """Write the currently-visible (filtered/sorted) rows to a CSV at ``path``,
+        translated through the profile's export format. Returns the number of rows
+        written."""
+        profile = self.store.profile
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(self.store.headers)
+            writer.writerow(profile.export_headers)
             for prow in range(self.proxy.rowCount()):
-                writer.writerow(
-                    [self.proxy.data(self.proxy.index(prow, c)) or "" for c in schema_cols])
+                row = {
+                    header: self.proxy.data(self.proxy.index(prow, col)) or ""
+                    for col, header in enumerate(self.store.headers, start=1)
+                }
+                writer.writerow(profile.to_export_row(row))
         return self.proxy.rowCount()

@@ -71,3 +71,15 @@ class ScrapeProfile(ABC):
     @abstractmethod
     def to_row(self, record: dict) -> list:
         """Flatten a record into a row matching ``schema``."""
+
+    @property
+    def export_headers(self) -> list[str]:
+        """Column headers for the user-facing CSV export. Defaults to ``schema``."""
+        return self.schema
+
+    def to_export_row(self, row: dict) -> list:
+        """Build one export CSV row from a ``{schema header: display value}`` dict.
+
+        Defaults to passing ``schema`` values through unchanged.
+        """
+        return [row.get(h, "") for h in self.schema]
