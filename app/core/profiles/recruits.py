@@ -289,8 +289,9 @@ def extract_attributes(ocr, img, rois):
     return attrs, _mean_conf(confs)
 
 
-def extract_star_rating(img, rois, scale: float = 1.0):
-    count, conf = processor.get_star_rating(_crop(img, rois["star_rating"]), scale=scale)
+def extract_star_rating(img, rois, profile: "RecruitsProfile", scale: float = 1.0):
+    count, conf = processor.get_star_rating(
+        _crop(img, rois["star_rating"]), template_path=profile.star_template_path, scale=scale)
     return count, conf
 
 
@@ -459,6 +460,17 @@ class RecruitsProfile(ScrapeProfile):
         return sorted(all_archetypes)
 
     @property
+    def star_template_path(self) -> Path:
+        """Star-icon template for this game version.
+
+        Versions whose star art matches CFB 26 don't need their own file —
+        falls back to the unversioned default template.
+        """
+        versioned = (Path(__file__).resolve().parents[2]
+                     / "resources" / f"{self.game_version}_star_template.png")
+        return versioned if versioned.exists() else processor.DEFAULT_STAR_TEMPLATE
+
+    @property
     def roi_keys(self) -> list[str]:
         return self._active_roi_keys
 
@@ -487,7 +499,7 @@ class RecruitsProfile(ScrapeProfile):
         mentals, conf["mentals"] = extract_mentals(ocr, img, rois, self)
         attributes, conf["attributes"] = extract_attributes(ocr, img, rois)
         dev_trait, conf["DEV TRAIT"] = extract_dev_trait(ocr, img, rois)
-        stars, conf["STARS"] = extract_star_rating(img, rois, scale=scale)
+        stars, conf["STARS"] = extract_star_rating(img, rois, self, scale=scale)
         gem, conf["GEM"] = extract_gem_status(img, rois)
 
         return {
