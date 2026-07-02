@@ -86,6 +86,16 @@ class DataTab(QWidget):
         root.addWidget(self.count_label)
 
     # ---- data ------------------------------------------------------------
+    def rebuild_for_store(self, store):
+        """Swap in a new store (e.g. when game_version changes) and refresh."""
+        self.store = store
+        self.display_headers = ["ID"] + store.headers + ["Scanned"]
+        self.col_keys = ["id"] + store.columns + ["scanned_at"]
+        self.model.clear()
+        self.model.setColumnCount(len(self.display_headers))
+        self.model.setHorizontalHeaderLabels(self.display_headers)
+        self.refresh()
+
     def refresh(self):
         rows = self.store.all()
         self.model.setRowCount(0)
@@ -140,13 +150,17 @@ class DataTab(QWidget):
         self.count_label.setText(f"Exported {n} recruit(s) to {path}")
 
     def export_to(self, path) -> int:
-        """Write the schema columns of the currently-visible (filtered/sorted) rows
-        to a CSV at ``path``. Returns the number of rows written."""
-        schema_cols = list(range(1, 1 + len(self.store.headers)))  # skip ID at col 0
+        """Write the currently-visible (filtered/sorted) rows to a CSV at ``path``,
+        translated through the profile's export format. Returns the number of rows
+        written."""
+        profile = self.store.profile
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(self.store.headers)
+            writer.writerow(profile.export_headers)
             for prow in range(self.proxy.rowCount()):
-                writer.writerow(
-                    [self.proxy.data(self.proxy.index(prow, c)) or "" for c in schema_cols])
+                row = {
+                    header: self.proxy.data(self.proxy.index(prow, col)) or ""
+                    for col, header in enumerate(self.store.headers, start=1)
+                }
+                writer.writerow(profile.to_export_row(row))
         return self.proxy.rowCount()

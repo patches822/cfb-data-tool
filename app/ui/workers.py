@@ -32,7 +32,7 @@ class EngineInitWorker(QThread):
                 self.settings.monitor_number)
             engine = Engine(
                 RapidOcrEngine(),
-                get_profile(self.settings.profile),
+                get_profile(self.settings.profile, self.settings.game_version),
                 calib["rois"],
                 scale=calib.get("cv_scale", 1.0),
             )

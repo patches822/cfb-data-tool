@@ -6,7 +6,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMainWindow, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..config.settings_store import Settings
@@ -27,7 +28,34 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("CFB Data Tool")
         self.resize(1100, 680)
 
-        self.store = RecordStore(self.settings.sqlite_path, get_profile(self.settings.profile))
+        self.store = RecordStore(
+            self.settings.sqlite_path,
+            get_profile(self.settings.profile, self.settings.game_version),
+            self.settings.game_version,
+        )
+
+        # -- game version bar (always visible, above the tabs) --
+        # No hardcoded background/text color here: this widget must stay
+        # readable under both light and dark OS themes, so it inherits the
+        # window's normal palette rather than fighting it. `palette(mid)`
+        # tracks whichever theme is active for the separator line.
+        version_bar = QWidget()
+        version_bar.setStyleSheet("border-bottom: 1px solid palette(mid);")
+        version_layout = QHBoxLayout(version_bar)
+        version_layout.setContentsMargins(12, 5, 12, 5)
+        version_label = QLabel("Game version:")
+        font = version_label.font()
+        font.setBold(True)
+        version_label.setFont(font)
+        version_layout.addWidget(version_label)
+        self.version_cb = QComboBox()
+        self.version_cb.addItem("CFB 26", "cfb26")
+        self.version_cb.addItem("CFB 27", "cfb27")
+        idx = self.version_cb.findData(self.settings.game_version)
+        self.version_cb.setCurrentIndex(max(0, idx))
+        self.version_cb.currentIndexChanged.connect(self._on_version_combo_changed)
+        version_layout.addWidget(self.version_cb)
+        version_layout.addStretch(1)
 
         # -- update banner (hidden until an update is found) --
         self._update_banner = QWidget()
@@ -61,12 +89,14 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.capture_tab, "Capture")
         tabs.addTab(self.calibration_tab, "Calibrate")
         tabs.addTab(self.data_tab, "Data")
-        tabs.addTab(SettingsTab(self.settings), "Settings")
+        self._settings_tab = SettingsTab(self.settings)
+        tabs.addTab(self._settings_tab, "Settings")
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        layout.addWidget(version_bar)
         layout.addWidget(self._update_banner)
         layout.addWidget(tabs, 1)
         self.setCentralWidget(central)
@@ -94,6 +124,40 @@ class MainWindow(QMainWindow):
         self._update_worker = UpdateCheckWorker(self)
         self._update_worker.update_available.connect(self._show_update_banner)
         self._update_worker.start()
+
+    def _on_version_combo_changed(self, index: int):
+        new_version = self.version_cb.itemData(index)
+        if new_version is None or new_version == self.settings.game_version:
+            return
+
+        pending = self.capture_tab.pending_review_count()
+        if pending:
+            reply = QMessageBox.question(
+                self, "Switch game version",
+                f"You have {pending} recruit(s) awaiting review in the Capture tab. "
+                "Their ability/mental dropdowns will switch to the new game version "
+                "before you've saved them. Switch anyway?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                self.version_cb.blockSignals(True)
+                self.version_cb.setCurrentIndex(
+                    self.version_cb.findData(self.settings.game_version))
+                self.version_cb.blockSignals(False)
+                return
+
+        self.settings.game_version = new_version
+        self.settings.save()
+        self._on_version_changed(new_version)
+
+    def _on_version_changed(self, game_version: str):
+        profile = get_profile(self.settings.profile, game_version)
+        self.store.close()
+        self.store = RecordStore(self.settings.sqlite_path, profile, game_version)
+        self.capture_tab.store = self.store
+        self.data_tab.rebuild_for_store(self.store)
+        self.capture_tab.reload_game_version(game_version)
+        self.calibration_tab.reload_game_version(game_version)
 
     def _show_update_banner(self, version: str, url: str):
         self._release_url = url

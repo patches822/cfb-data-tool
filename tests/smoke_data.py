@@ -70,7 +70,7 @@ def main() -> int:
     n = dt.export_to(str(csv_path))
     assert csv_path.exists() and n == 2, n
     header = csv_path.read_text(encoding="utf-8").splitlines()[0].split(",")
-    assert header[:2] == ["NAME", "POSITION"], header
+    assert header[:2] == ["game", "player_name"], header
     print(f"• exported {n} rows to CSV ({len(header)} columns)")
 
     jane_id = [r["id"] for r in store.all() if r["name"] == "Jane Smith"][0]

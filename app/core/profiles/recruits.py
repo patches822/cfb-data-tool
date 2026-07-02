@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # --- Output schema (column order for CSV/SQLite) ---
 BASIC_INFO_HEADERS = [
     "NAME", "POSITION", "ARCHETYPE", "STARS", "GEM",
-    "HEIGHT", "WEIGHT", "CLASS", "HOMETOWN", "DEV TRAIT",
+    "HEIGHT", "WEIGHT", "CLASS", "HOMETOWN", "DEV TRAIT", "NATIONAL RANK",
 ]
 
 ATTRIBUTE_HEADERS = [
@@ -39,6 +39,41 @@ ATTRIBUTE_HEADERS = [
     "STAMINA", "TOUGHNESS", "INJURY", "LONG SNAPPER",
 ]
 
+# Abbreviated attribute codes expected by the external export tool, mapped to the
+# full ATTRIBUTE_HEADERS names above. KICK RETURN/STAMINA/TOUGHNESS/INJURY/LONG SNAPPER
+# aren't requested by the external tool and are intentionally omitted.
+EXPORT_ATTRIBUTE_MAP = {
+    "SPD": "SPEED", "ACC": "ACCELERATION", "AGI": "AGILITY", "COD": "CHANGE OF DIRECTION",
+    "STR": "STRENGTH", "JMP": "JUMPING", "AWR": "AWARENESS", "CAR": "CARRYING",
+    "BCV": "BC VISION", "BTK": "BREAK TACKLE", "TRK": "TRUCKING", "SFA": "STIFF ARM",
+    "JKM": "JUKE MOVE", "SPM": "SPIN MOVE", "CTH": "CATCHING", "CIT": "CATCH IN TRAFFIC",
+    "SPC": "SPECTACULAR CATCH", "SRR": "SHORT ROUTE", "MRR": "MEDIUM ROUTE",
+    "DRR": "DEEP ROUTE", "RLS": "RELEASE", "THP": "THROW POWER", "SAC": "SHORT ACCURACY",
+    "MAC": "MEDIUM ACCURACY", "DAC": "DEEP ACCURACY", "TUP": "UNDER PRESSURE",
+    "RUN": "THROW ON RUN", "PAC": "PLAY ACTION", "BSK": "BREAK SACK", "PBK": "PASS BLOCK",
+    "PBP": "PASS BLOCK POWER", "PBF": "PASS BLOCK FINESSE", "RBK": "RUN BLOCK",
+    "RBP": "RUN BLOCK POWER", "RBF": "RUN BLOCK FINESSE", "IBL": "IMPACT BLOCKING",
+    "LBK": "LEAD BLOCK", "TAK": "TACKLE", "PUR": "PURSUIT", "PRC": "PLAY RECOGNITION",
+    "BSH": "BLOCK SHEDDING", "PMV": "POWER MOVES", "FMV": "FINESSE MOVES",
+    "ZCV": "ZONE COVERAGE", "MCV": "MAN COVERAGE", "PRS": "PRESS", "HPW": "HIT POWER",
+    "KPW": "KICK POWER", "KAC": "KICK ACCURACY",
+}
+
+EXPORT_HEADERS = [
+    "game", "player_name", "position", "star", "national_rank", "scouting_status",
+    "archetype", "is_athlete", "dev_trait", "height",
+    "weight", "expected_nil_value", "abilities", "mentals",
+] + list(EXPORT_ATTRIBUTE_MAP.keys())
+
+# The external tool doesn't distinguish left/right O-line or edge spots, or
+# WILL/SAM outside linebacker spots (MIKE stays distinct as the middle 'backer).
+EXPORT_POSITION_MAP = {
+    "LT": "OT", "RT": "OT",
+    "LG": "OG", "RG": "OG",
+    "LEDG": "EDGE", "REDG": "EDGE",
+    "WILL": "OLB", "SAM": "OLB",
+}
+
 ABILITY_HEADERS = [
     "ABILITY_1", "ABILITY_1_LEVEL",
     "ABILITY_2", "ABILITY_2_LEVEL",
@@ -53,12 +88,6 @@ MENTAL_HEADERS = [
     "MENTAL_3", "MENTAL_3_LEVEL",
 ]
 
-MENTAL_NAMES = [
-    "Adrenaline", "Best Friend", "Clear Headed", "Clutch Kicker",
-    "Defensive Rally", "Fan Favorite", "Field General", "Headstrong",
-    "Instinct", "Legion", "Offensive Rally", "Road Dog",
-    "Rollercoaster", "Team Player", "The Natural", "Winning Time",
-]
 
 POSITION_ATTRIBUTE_COUNT = {
     "QB": 10, "HB": 10, "FB": 10, "WR": 10, "TE": 10,
@@ -295,8 +324,9 @@ def extract_attributes(ocr, img, rois):
     return attrs, _mean_conf(confs)
 
 
-def extract_star_rating(img, rois, scale: float = 1.0):
-    count, conf = processor.get_star_rating(_crop(img, rois["star_rating"]), scale=scale)
+def extract_star_rating(img, rois, profile: "RecruitsProfile", scale: float = 1.0):
+    count, conf = processor.get_star_rating(
+        _crop(img, rois["star_rating"]), template_path=profile.star_template_path, scale=scale)
     return count, conf
 
 
@@ -305,35 +335,9 @@ def extract_gem_status(img, rois):
     return status, conf
 
 
-_ABILITIES_TABLE = None
-
-
-def _load_abilities_table():
-    global _ABILITIES_TABLE
-    if _ABILITIES_TABLE is None:
-        path = Path(__file__).resolve().parents[2] / "config" / "presets" / "cfb26" / "abilities.json"
-        _ABILITIES_TABLE = json.loads(path.read_text(encoding="utf-8"))
-    return _ABILITIES_TABLE
-
-
-def _get_expected_abilities(position: str, archetype: str) -> list[str]:
-    table = _load_abilities_table()
-    return table.get(position, {}).get(archetype, [])
-
-
-def get_position_archetypes(position: str) -> list[str]:
-    """All known archetypes for *position*, sorted alphabetically.
-
-    ATH (or any position absent from the table) returns the union of all
-    archetypes across every position, since an ATH recruit can play anywhere.
-    """
-    table = _load_abilities_table()
-    if position in table:
-        return sorted(table[position].keys())
-    all_archetypes: set[str] = set()
-    for archetypes in table.values():
-        all_archetypes.update(archetypes.keys())
-    return sorted(all_archetypes)
+def get_position_archetypes(position: str, game_version: str = "cfb26") -> list[str]:
+    """Module-level shim for backward compatibility with tests and external callers."""
+    return RecruitsProfile(game_version).get_position_archetypes(position)
 
 
 def _fuzzy_match_ability(ocr_text: str, expected: list[str]) -> str:
@@ -389,12 +393,12 @@ def _extract_icons_and_text(items, cropped, header_filter):
     return results, _mean_conf(confs)
 
 
-def extract_abilities(ocr, img, rois, position: str, archetype: str):
+def extract_abilities(ocr, img, rois, position: str, archetype: str, profile: "RecruitsProfile"):
     roi = rois.get("abilities")
     if roi is None:
         return {}, 0.0
 
-    expected = _get_expected_abilities(position, archetype)
+    expected = profile._get_expected_abilities(position, archetype)
     items = _read_with_xy(ocr, img, roi)
     cropped = _crop(img, roi)
 
@@ -407,7 +411,7 @@ def extract_abilities(ocr, img, rois, position: str, archetype: str):
     return abilities, conf
 
 
-def extract_mentals(ocr, img, rois):
+def extract_mentals(ocr, img, rois, profile: "RecruitsProfile"):
     roi = rois.get("mentals")
     if roi is None:
         return {}, 0.0
@@ -417,7 +421,7 @@ def extract_mentals(ocr, img, rois):
 
     mentals, conf = _extract_icons_and_text(items, cropped, "MENTALS")
 
-    mentals = {_fuzzy_match_ability(name, MENTAL_NAMES): level
+    mentals = {_fuzzy_match_ability(name, profile.mental_names): level
                for name, level in mentals.items()}
 
     return mentals, conf
@@ -432,6 +436,32 @@ def extract_dev_trait(ocr, img, rois):
     return "", 0.0
 
 
+def extract_national_rank(ocr, img, rois):
+    roi = rois.get("national_rank")
+    if roi is None:
+        return "", 0.0
+    pairs = _read(ocr, img, roi)
+    s = " ".join(t for t, _ in pairs)
+    # The card shows a label prefix ("NAT:347", "National Rank #12", ...) — the
+    # rank itself is just the digits, wherever the label formatting lands them.
+    m = re.search(r"(\d+)", s)
+    result = m.group(1) if m else ""
+    return result, _mean_conf([c for _, c in pairs])
+
+
+def extract_nil_value(ocr, img, rois):
+    roi = rois.get("nil_value")
+    if roi is None:
+        return "", 0.0
+    pairs = _read(ocr, img, roi)
+    s = " ".join(t for t, _ in pairs)
+    # Card shows "EXPECTED NIL" + an icon (not OCR'd) + a plain number ("120") —
+    # pull the digits out rather than trying to strip every label word.
+    m = re.search(r"(\d+)", s)
+    result = m.group(1) if m else ""
+    return result, _mean_conf([c for _, c in pairs])
+
+
 # ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
@@ -440,17 +470,85 @@ class RecruitsProfile(ScrapeProfile):
     key = "recruits"
     display_name = "Recruits"
 
-    @property
-    def roi_keys(self):
-        return [
-            "name", "position", "archetype", "recruit_class", "hometown",
-            "height_weight", "abilities", "mentals", "attributes",
-            "star_rating", "gem_icon", "dev_trait",
-        ]
+    _FALLBACK_ROI_KEYS = [
+        "name", "position", "archetype", "recruit_class", "hometown",
+        "height_weight", "abilities", "mentals", "attributes",
+        "star_rating", "gem_icon", "dev_trait", "national_rank", "nil_value",
+    ]
+
+    def __init__(self, game_version: str = "cfb26"):
+        self.game_version = game_version
+        self._abilities_cache: dict | None = None
+        self._active_roi_keys = self._read_preset_roi_keys()
+
+    def _read_preset_roi_keys(self) -> list[str]:
+        path = (Path(__file__).resolve().parents[2]
+                / "config" / "presets" / self.game_version / "recruits.json")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return list(data.get("rois", {}).keys())
+        except FileNotFoundError:
+            return list(self._FALLBACK_ROI_KEYS)
+
+    def _load_abilities_table(self) -> dict:
+        if self._abilities_cache is None:
+            path = (Path(__file__).resolve().parents[2]
+                    / "config" / "presets" / self.game_version / "abilities.json")
+            self._abilities_cache = json.loads(path.read_text(encoding="utf-8"))
+        return self._abilities_cache
 
     @property
-    def schema(self):
-        return BASIC_INFO_HEADERS + ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
+    def mental_names(self) -> list[str]:
+        return self._load_abilities_table().get("_mentals", [])
+
+    def _get_expected_abilities(self, position: str, archetype: str) -> list[str]:
+        t = self._load_abilities_table()
+        return t.get(position, {}).get(archetype, [])
+
+    def get_position_archetypes(self, position: str) -> list[str]:
+        """All known archetypes for *position*, sorted alphabetically.
+
+        ATH (or any position absent from the table) returns the union of all
+        archetypes across every position, since an ATH recruit can play anywhere.
+        """
+        t = self._load_abilities_table()
+        pos = {k: v for k, v in t.items() if not k.startswith("_")}
+        if position in pos:
+            return sorted(pos[position].keys())
+        all_archetypes: set[str] = set()
+        for archetypes in pos.values():
+            all_archetypes.update(archetypes.keys())
+        return sorted(all_archetypes)
+
+    @property
+    def star_template_path(self) -> Path:
+        """Star-icon template for this game version.
+
+        Versions whose star art matches CFB 26 don't need their own file —
+        falls back to the unversioned default template.
+        """
+        versioned = (Path(__file__).resolve().parents[2]
+                     / "resources" / f"{self.game_version}_star_template.png")
+        return versioned if versioned.exists() else processor.DEFAULT_STAR_TEMPLATE
+
+    @property
+    def roi_keys(self) -> list[str]:
+        return self._active_roi_keys
+
+    @property
+    def basic_info_headers(self) -> list[str]:
+        """BASIC_INFO_HEADERS plus any version-conditional basic fields
+        (e.g. NIL VALUE is CFB 27 only). Used by both ``schema``/``to_row``
+        and the Capture tab's result card, so the UI stays in sync with
+        whichever fields this game version actually captures."""
+        cols = list(BASIC_INFO_HEADERS)
+        if "nil_value" in self._active_roi_keys:
+            cols.append("NIL VALUE")
+        return cols
+
+    @property
+    def schema(self) -> list[str]:
+        return self.basic_info_headers + ABILITY_HEADERS + MENTAL_HEADERS + ATTRIBUTE_HEADERS
 
     @property
     def dedupe_keys(self):
@@ -465,14 +563,15 @@ class RecruitsProfile(ScrapeProfile):
         hometown, conf["HOMETOWN"] = extract_hometown(ocr, img, rois)
         height, weight, hw_conf = extract_height_weight(ocr, img, rois)
         conf["HEIGHT"] = conf["WEIGHT"] = hw_conf
-        abilities, conf["abilities"] = extract_abilities(ocr, img, rois, position, archetype)
-        mentals, conf["mentals"] = extract_mentals(ocr, img, rois)
+        abilities, conf["abilities"] = extract_abilities(ocr, img, rois, position, archetype, self)
+        mentals, conf["mentals"] = extract_mentals(ocr, img, rois, self)
         attributes, conf["attributes"] = extract_attributes(ocr, img, rois)
         dev_trait, conf["DEV TRAIT"] = extract_dev_trait(ocr, img, rois)
-        stars, conf["STARS"] = extract_star_rating(img, rois, scale=scale)
+        stars, conf["STARS"] = extract_star_rating(img, rois, self, scale=scale)
         gem, conf["GEM"] = extract_gem_status(img, rois)
+        national_rank, conf["NATIONAL RANK"] = extract_national_rank(ocr, img, rois)
 
-        return {
+        record = {
             "NAME": name,
             "POSITION": position,
             "ARCHETYPE": archetype,
@@ -483,11 +582,16 @@ class RecruitsProfile(ScrapeProfile):
             "CLASS": recruit_class,
             "HOMETOWN": hometown,
             "DEV TRAIT": dev_trait,
+            "NATIONAL RANK": national_rank,
             "abilities": abilities,
             "mentals": mentals,
             "attributes": attributes,
             "_confidence": conf,
         }
+        if "nil_value" in self._active_roi_keys:
+            nil_value, conf["NIL VALUE"] = extract_nil_value(ocr, img, rois)
+            record["NIL VALUE"] = nil_value
+        return record
 
     def validate(self, record) -> tuple[bool, list[str]]:
         missing = [k for k in _REQUIRED if record.get(k) in ("Error", "", None)]
@@ -504,7 +608,7 @@ class RecruitsProfile(ScrapeProfile):
         return (not missing), missing
 
     def to_row(self, record) -> list:
-        row = [record.get(h, "") for h in BASIC_INFO_HEADERS]
+        row = [record.get(h, "") for h in self.basic_info_headers]
         ability_items = list(record.get("abilities", {}).items())
         for i in range(5):
             if i < len(ability_items):
@@ -523,3 +627,62 @@ class RecruitsProfile(ScrapeProfile):
         for header in ATTRIBUTE_HEADERS:
             row.append(attrs.get(header.upper(), ""))
         return row
+
+    @property
+    def export_headers(self) -> list[str]:
+        return EXPORT_HEADERS
+
+    def _resolve_ath_position(self, archetype: str) -> str:
+        """Look up the real position for an ATH card's archetype via the
+        game version's ``_ath_positions`` whitelist. Empty string if unknown."""
+        table = self._load_abilities_table()
+        return table.get("_ath_positions", {}).get(archetype, "")
+
+    def _export_game_label(self) -> str:
+        """"cfb26" -> "CFB 26" for the external export's ``game`` column."""
+        m = re.match(r"([a-zA-Z]+)(\d+)", self.game_version)
+        return f"{m.group(1).upper()} {m.group(2)}" if m else self.game_version
+
+    def to_export_row(self, row: dict) -> list:
+        position = row.get("POSITION", "")
+        archetype = row.get("ARCHETYPE", "")
+        is_athlete = position == "ATH"
+        resolved_position = self._resolve_ath_position(archetype) if is_athlete else ""
+        final_position = resolved_position or position
+        final_position = EXPORT_POSITION_MAP.get(final_position, final_position)
+
+        ability_parts = []
+        for i in range(1, 6):
+            name = row.get(f"ABILITY_{i}", "")
+            if name:
+                level = row.get(f"ABILITY_{i}_LEVEL", "")
+                ability_parts.append(f"{name} ({level})" if level else name)
+        abilities = "; ".join(ability_parts)
+
+        mental_parts = []
+        for i in range(1, 4):
+            name = row.get(f"MENTAL_{i}", "")
+            if name:
+                level = row.get(f"MENTAL_{i}_LEVEL", "")
+                mental_parts.append(f"{name} ({level})" if level else name)
+        mentals = "; ".join(mental_parts)
+
+        out = [
+            self._export_game_label(),
+            row.get("NAME", ""),
+            final_position,
+            row.get("STARS", ""),
+            row.get("NATIONAL RANK", ""),
+            row.get("GEM", ""),
+            archetype,
+            "yes" if is_athlete else "no",
+            row.get("DEV TRAIT", ""),
+            row.get("HEIGHT", ""),
+            row.get("WEIGHT", ""),
+            row.get("NIL VALUE", ""),
+            abilities,
+            mentals,
+        ]
+        for full_header in EXPORT_ATTRIBUTE_MAP.values():
+            out.append(row.get(full_header, ""))
+        return out

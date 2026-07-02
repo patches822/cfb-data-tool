@@ -12,21 +12,24 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-PROFILES: dict[str, "ScrapeProfile"] = {}
+PROFILES: dict[str, type["ScrapeProfile"]] = {}
 
 
 def register_profile(cls):
-    """Class decorator: instantiate and register a profile by its ``key``."""
-    instance = cls()
-    PROFILES[instance.key] = instance
+    """Class decorator: register a profile class by its ``key``."""
+    PROFILES[cls.key] = cls
     return cls
 
 
-def get_profile(key: str) -> "ScrapeProfile":
+def get_profile(key: str, game_version: str = "cfb26") -> "ScrapeProfile":
     try:
-        return PROFILES[key]
+        cls = PROFILES[key]
     except KeyError:
         raise KeyError(f"Unknown profile '{key}'. Registered: {sorted(PROFILES)}")
+    try:
+        return cls(game_version=game_version)
+    except TypeError:
+        return cls()
 
 
 class ScrapeProfile(ABC):
@@ -68,3 +71,15 @@ class ScrapeProfile(ABC):
     @abstractmethod
     def to_row(self, record: dict) -> list:
         """Flatten a record into a row matching ``schema``."""
+
+    @property
+    def export_headers(self) -> list[str]:
+        """Column headers for the user-facing CSV export. Defaults to ``schema``."""
+        return self.schema
+
+    def to_export_row(self, row: dict) -> list:
+        """Build one export CSV row from a ``{schema header: display value}`` dict.
+
+        Defaults to passing ``schema`` values through unchanged.
+        """
+        return [row.get(h, "") for h in self.schema]

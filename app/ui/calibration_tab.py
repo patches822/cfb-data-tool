@@ -392,3 +392,22 @@ class CalibrationTab(QWidget):
         so the Capture tab always reflects the latest calibration."""
         if self._dirty:
             self._save()
+
+    def reload_game_version(self, game_version: str):
+        """Re-resolve calibration for a new game version.
+
+        ROI keys can differ per version (e.g. ``nil_value`` is CFB 27 only), so the
+        stale ``self.calib`` from the previous version must be replaced outright
+        rather than reused — otherwise the ROI list keeps showing the old version's
+        regions after switching.
+        """
+        self._dirty = False
+        self.calib = resolve_calibration(
+            game_version, self.settings.profile, self.settings.monitor_number)
+        if self.mode == "area":
+            self._area_ref = None
+            self.mode = "card"
+            self.mode_combo.blockSignals(True)
+            self.mode_combo.setCurrentIndex(0)
+            self.mode_combo.blockSignals(False)
+        self._load_calibration(self.calib)

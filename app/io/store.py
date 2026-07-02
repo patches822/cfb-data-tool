@@ -21,9 +21,11 @@ def col_name(header: str) -> str:
 
 
 class RecordStore:
-    def __init__(self, db_path, profile):
+    def __init__(self, db_path, profile, game_version: str = "cfb26"):
         self.profile = profile
-        self.table = re.sub(r"\W+", "_", profile.key)
+        base = re.sub(r"\W+", "_", profile.key)
+        suffix = re.sub(r"[^a-z0-9]", "", game_version.lower())
+        self.table = f"{base}_{suffix}"
         self.headers = list(profile.schema)
         self.columns = [col_name(h) for h in self.headers]
         self.dedupe = [col_name(k) for k in profile.dedupe_keys]
@@ -31,6 +33,7 @@ class RecordStore:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self._migrate_legacy_table()
         self._ensure_table()
 
     def _ensure_table(self):
@@ -51,6 +54,31 @@ class RecordStore:
             if col not in existing:
                 self.conn.execute(
                     f'ALTER TABLE "{self.table}" ADD COLUMN "{col}" TEXT')
+        self.conn.commit()
+
+    def _migrate_legacy_table(self):
+        """One-time rename: old unversioned 'recruits' table → 'recruits_cfb26'.
+
+        Must run before ``_ensure_table`` creates the versioned table, otherwise
+        the rename target already exists and SQLite refuses the ALTER.
+        """
+        legacy = re.sub(r"\W+", "_", self.profile.key)
+        if legacy == self.table:
+            return
+        existing = {row[0] for row in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?)",
+            (legacy, self.table),
+        ).fetchall()}
+        if legacy not in existing:
+            return
+        if self.table in existing:
+            # An empty versioned table can exist without real data in it (e.g. an
+            # interrupted startup) — safe to drop and retry the rename in that case.
+            count = self.conn.execute(f'SELECT COUNT(*) FROM "{self.table}"').fetchone()[0]
+            if count > 0:
+                return
+            self.conn.execute(f'DROP TABLE "{self.table}"')
+        self.conn.execute(f'ALTER TABLE "{legacy}" RENAME TO "{self.table}"')
         self.conn.commit()
 
     def upsert(self, row: list) -> str:
