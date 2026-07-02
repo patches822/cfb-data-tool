@@ -23,6 +23,8 @@ All notable changes to CFB Data Tool are documented here.
 - **Calibrate tab** now reloads its ROI list on a game-version switch instead of showing stale ROIs from the previous version.
 - **Result card field list** is now built from the profile's version-aware headers instead of a static header constant, so `nil_value` appears for CFB 27.
 - **Review queue** (Save All / Remove Selected / Clear) now resets the result card once the queue empties, instead of leaving the last reviewed recruit's data on screen.
+- **CFB 27 ATH position resolution** — the archetype → real-position whitelist for CFB 27 (`_ath_positions`) was empty, so ATH recruits exported with the literal position `ATH` instead of their resolved real position; populated it for all 10 known CFB 27 ATH archetypes.
+- **Linux AppImage smoke test** — the bundled smoke-test writer defaulted to writing its result next to the running executable, which fails because an AppImage mounts itself read-only; it now writes next to the `.AppImage` file instead.
 
 ### Changed
 
