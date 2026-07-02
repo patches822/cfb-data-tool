@@ -1,3 +1,3 @@
 """CFB Data Tool — desktop app for capturing College Football data via OCR + CV."""
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
