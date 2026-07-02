@@ -47,5 +47,5 @@ echo "==> AppImage ready: $OUTPUT"
 if [ "${CFB_SMOKE:-}" = "1" ]; then
     echo "==> Running smoke test..."
     QT_QPA_PLATFORM=offscreen CFB_SMOKE=1 "$OUTPUT"
-    cat dist/CFBDataTool/smoke_result.txt
+    cat "$(dirname "$OUTPUT")/smoke_result.txt"
 fi
