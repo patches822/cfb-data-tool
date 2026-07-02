@@ -4,7 +4,18 @@
     "Fan Favorite", "Field General", "Hot Head", "Headstrong", "Legion",
     "Offensive Rally", "Road Dog", "Team Player", "The Natural", "Winning Time"
   ],
-  "_ath_positions": {},
+  "_ath_positions": {
+    "Backfield Threat": "HB",
+    "Speed Rusher": "LEDG",
+    "Lurker": "MIKE",
+    "Physical Route Runner": "TE",
+    "Contested Specialist": "WR",
+    "Pure Runner": "QB",
+    "Contact Seeker": "HB",
+    "Agile": "C",
+    "Dual Threat": "QB",
+    "Elusive Bruiser": "HB"
+  },
   "QB": {
     "Backfield Creator": ["Off Platform", "Pull Down", "On Time", "Magician", "Mobile Deadeye"],
     "Dual Threat": ["Downhill", "Extender", "Option King", "Dot!", "Mobile Resistance"],
