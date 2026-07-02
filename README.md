@@ -4,7 +4,7 @@ A friendly **desktop app** for capturing College Football data from your screen 
 
 This is the GUI successor to the [cf26-recruit-scraper](https://github.com/patches822/cf26-recruit-scraper) CLI, rebuilt for non-technical users.
 
-> **Status:** ✅ Feature-complete (v0.1.3). Engine, UI, calibration editor, data viewer, inline correction, auto-capture, and installers for Windows and macOS are all in place. New users should start with [QUICKSTART.md](QUICKSTART.md).
+> **Status:** ✅ Feature-complete (v0.1.3). Engine, UI, calibration editor, data viewer, inline correction, auto-capture, and installers for Windows, macOS, and Linux (AppImage) are all in place. New users should start with [QUICKSTART.md](QUICKSTART.md).
 
 ## Features
 
@@ -14,7 +14,7 @@ This is the GUI successor to the [cf26-recruit-scraper](https://github.com/patch
 - **Auto-capture / batch mode** — optionally detect new cards and queue them for review. Invalid scans stay in the queue after saving so you can fix or discard them.
 - **Abilities & mentals** — scrapes ability names with tier detection (Bronze/Silver/Gold/Platinum) and mental traits from the recruit card.
 - **Multi-game-version support** — switch the active game (e.g. CFB 26 / CFB 27) from a dropdown always visible above the tabs; each version gets its own ROI/ability presets and its own collection in the Data tab.
-- **One-click install** — Windows installer (PyInstaller + Inno Setup) and macOS `.app` bundle (+ optional DMG).
+- **One-click install** — Windows installer (PyInstaller + Inno Setup), macOS `.app` bundle (+ optional DMG), and Linux AppImage (Wayland-first).
 
 ## Architecture
 
@@ -25,8 +25,9 @@ app/core/processor.py  star count (template match) + gem/bust + ability tier (HS
 app/core/profiles/     ScrapeProfile interface + registry; recruits is profile #1
 app/core/calibration.py ROI presets keyed by (game_version, profile); resolution scaling
 app/core/engine.py     scan(image) -> ScanResult  (produces results; never saves)
-app/core/capture.py    screen capture via mss (BGR numpy arrays)
-app/core/sound.py      cross-platform sound playback (.wav / .aiff)
+app/core/capture.py    screen capture facade (mss on Win/macOS; portal on Linux Wayland)
+app/platform/          OS/session backends (capture, hotkey, sound, theme)
+app/core/sound.py      cross-platform sound playback (.wav / .aiff / .oga)
 app/io/                SQLite record store + CSV export
 app/config/presets/    JSON ROI/ability presets per game version (cfb26/, cfb27/, ...)
 ```
@@ -42,6 +43,7 @@ python -m venv .venv
 .venv\Scripts\activate      # Windows
 source .venv/bin/activate   # macOS / Linux
 pip install -e .
+pip install -e .[linux]     # optional: Wayland portal capture deps on Linux
 ```
 
 ### Tests
@@ -116,6 +118,26 @@ This produces `dist/CFBDataTool.app`. If [`create-dmg`](https://github.com/creat
 > **Note:** The global scan hotkey requires Accessibility permission on macOS (System Settings > Privacy & Security > Accessibility). Without it, use the on-screen **Scan** button.
 
 End-user instructions live in [QUICKSTART.md](QUICKSTART.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
+
+## Building the Linux AppImage
+
+Requires a Wayland or X11 desktop for manual testing; CI smoke tests run headless.
+
+```bash
+pip install -e .[dev,linux]   # in the venv
+bash packaging/build_linux.sh
+```
+
+This produces `dist/CFBDataTool-<arch>.AppImage`. First launch on Wayland will prompt for **monitor screen-share permission** via the desktop portal when you start live capture or re-capture a monitor in Calibrate.
+
+Verify a bundle without launching the UI:
+
+```bash
+QT_QPA_PLATFORM=offscreen CFB_SMOKE=1 ./dist/CFBDataTool-x86_64.AppImage
+cat dist/CFBDataTool/smoke_result.txt   # should say "SMOKE OK"
+```
+
+> **Linux notes:** Global scan hotkeys may not work on Wayland without extra permissions — use the on-screen **Scan** button. **Load Image…** works without portal permission.
 
 ## License
 
